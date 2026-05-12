@@ -1,0 +1,150 @@
+name: Release
+
+# Dogfood release: this workflow builds the docker image AND publishes the
+# Tamp.Beacon.Sdk nupkg *using Tamp itself*. The dotnet-tamp global tool is
+# installed and runs the Build.cs targets — same pattern Tamp's own CI uses.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'If true, pack + buildx but do NOT push to ghcr / nuget.org'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  DOTNET_NOLOGO: '1'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+  TampCoreMode: package
+
+jobs:
+  publish:
+    name: docker image + Tamp.Beacon.Sdk nupkg via Tamp
+    runs-on: ubuntu-latest
+    environment: release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Wait for CI to pass on this commit
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -e
+          SHA="${{ github.sha }}"
+          echo "Waiting for CI workflow run on commit $SHA"
+          for i in $(seq 1 60); do
+            result=$(gh run list --workflow CI --commit "$SHA" --json status,conclusion --jq '.[0] // empty')
+            if [ -z "$result" ]; then
+              echo "  (no CI run for this commit yet — attempt $i/60, sleeping 10s)"
+              sleep 10
+              continue
+            fi
+            status=$(echo "$result" | jq -r '.status')
+            conclusion=$(echo "$result" | jq -r '.conclusion // ""')
+            echo "  CI status=$status conclusion=$conclusion (attempt $i/60)"
+            if [ "$status" != "completed" ]; then
+              sleep 10
+              continue
+            fi
+            if [ "$conclusion" = "success" ]; then
+              echo "CI passed on $SHA — proceeding with release"
+              exit 0
+            fi
+            echo "::error::CI conclusion is '$conclusion' on commit $SHA. Refusing to release."
+            exit 1
+          done
+          echo "::error::Timed out waiting for CI to complete on commit $SHA after 10 minutes."
+          exit 1
+
+      - name: Install supported .NET SDKs
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Enable Yarn (Berry)
+        run: corepack enable && corepack prepare yarn@4.5.0 --activate
+
+      - name: Setup Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve version from tag
+        if: github.event_name == 'push'
+        run: echo "PACKAGE_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Gate the docker push on tag releases
+        if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
+        run: echo "BEACON_PUSH_IMAGE=true" >> "$GITHUB_ENV"
+
+      - name: Install Tamp (the framework being dogfooded)
+        run: dotnet tool install --global dotnet-tamp --version 1.4.0
+
+      - name: tamp Ci
+        run: dotnet tamp Ci
+
+      - name: tamp Pack (SDK nupkg)
+        run: dotnet tamp Pack
+
+      - name: List packages
+        run: ls -la ./artifacts/
+
+      - name: Diagnostics — secret presence check
+        if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
+        env:
+          NUGET_API_KEY: ${{ secrets.tamp_nuget_api_key }}
+        run: |
+          if [ -n "$NUGET_API_KEY" ]; then
+            echo "NUGET_API_KEY is set (${#NUGET_API_KEY} chars)."
+          else
+            echo "::error::NUGET_API_KEY is empty. Check the tamp_nuget_api_key org secret."
+            exit 1
+          fi
+
+      - name: tamp Push (nupkg)
+        if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
+        env:
+          NUGET_API_KEY: ${{ secrets.tamp_nuget_api_key }}
+        run: dotnet tamp Push
+
+      - name: Dry-run summary
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+        run: |
+          echo "DRY RUN — would have pushed image + nupkg:"
+          ls -la ./artifacts/*.nupkg || true
+
+      - name: Upload nupkgs as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkgs
+          path: ./artifacts/*.nupkg
+          if-no-files-found: warn

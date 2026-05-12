@@ -1,0 +1,41 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup Label="Test stack">
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageVersion Include="xunit" Version="2.9.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageVersion Include="Bogus" Version="35.6.1" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.2" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Source link">
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Tamp packages — pinned to the 1.4.0 wave; satellites at their latest published 0.x">
+    <PackageVersion Include="Tamp.Core" Version="1.4.0" />
+    <PackageVersion Include="Tamp.NetCli.V10" Version="1.4.0" />
+    <PackageVersion Include="Tamp.Yarn.V4" Version="0.1.1" />
+    <PackageVersion Include="Tamp.Vite.V5" Version="0.1.1" />
+    <PackageVersion Include="Tamp.Docker.V27" Version="0.3.0" />
+    <PackageVersion Include="Tamp.Http" Version="0.1.1" />
+  </ItemGroup>
+
+  <ItemGroup Label="Storage + Web Push">
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.7" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.7" />
+    <PackageVersion Include="Dapper" Version="2.1.72" />
+    <PackageVersion Include="WebPush" Version="1.0.12" />
+  </ItemGroup>
+
+  <ItemGroup Label="OpenAPI (kept available for v0.2.0 doc surface)">
+    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build & test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      DOTNET_NOLOGO: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+      TampCoreMode: package
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install supported .NET SDKs
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      - name: Setup Node.js (for yarn build of the SPA)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Enable Yarn (Berry)
+        run: corepack enable && corepack prepare yarn@4.5.0 --activate
+
+      - name: Verify toolchain
+        shell: bash
+        run: |
+          dotnet --info
+          dotnet --list-sdks
+          node --version
+          yarn --version
+
+      - name: NuGet cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Yarn install (immutable)
+        working-directory: web
+        run: yarn install --immutable
+
+      - name: Yarn build SPA
+        working-directory: web
+        run: yarn build
+
+      - name: Copy SPA into wwwroot
+        shell: bash
+        run: |
+          mkdir -p src/Tamp.Beacon/wwwroot
+          cp -R web/dist/. src/Tamp.Beacon/wwwroot/
+
+      - name: Restore
+        run: dotnet restore Tamp.Beacon.slnx
+
+      - name: Build
+        run: dotnet build Tamp.Beacon.slnx --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test Tamp.Beacon.slnx --no-build --configuration Release --logger "trx;LogFileName=test-results.trx" --results-directory ./TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}
+          path: ./TestResults/**/*.trx
+          if-no-files-found: warn

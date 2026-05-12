@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    <RootNamespace>Tamp.Beacon.Sdk</RootNamespace>
+    <AssemblyName>Tamp.Beacon.Sdk</AssemblyName>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Package">
+    <PackageId>Tamp.Beacon.Sdk</PackageId>
+    <Description>Typed C# client over the tamp-beacon JSON API. Lets adopters query build history from inside their own Build.cs or any .NET app. Companion to the ghcr.io/tamp-build/tamp-beacon container image.</Description>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
+  </ItemGroup>
+
+</Project>

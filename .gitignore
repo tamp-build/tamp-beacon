@@ -1,0 +1,78 @@
+# .NET build artifacts
+bin/
+obj/
+out/
+artifacts/
+publish/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+!packages.config
+
+# Test results
+[Tt]est[Rr]esult*/
+[Cc]overage*/
+*.trx
+*.coverage
+*.coveragexml
+coverage.opencover.xml
+coverage.cobertura.xml
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+.vscode/
+!.vscode/launch.json.example
+!.vscode/tasks.json.example
+*.swp
+
+# Tamp local state
+.tamp/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tooling
+.vsix
+*.log
+*.tlog
+.sonarqube/
+
+# Node / Yarn
+node_modules/
+.yarn/cache/
+.yarn/install-state.gz
+.yarn/build-state.yml
+.pnp.*
+yarn-error.log
+.npm/
+
+# TypeScript incremental + emitted from tsconfig.node.json
+*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
+
+# Vite build output (Build.cs copies dist/ into wwwroot/ at build time)
+web/dist/
+
+# Beacon runtime state
+*.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+vapid.key
+/var/lib/tamp-beacon/
+beacon-data/
+
+# Bundled wwwroot is generated; only checked-in files are placeholders
+src/Tamp.Beacon/wwwroot/assets/
+src/Tamp.Beacon/wwwroot/index.html
+!src/Tamp.Beacon/wwwroot/.gitkeep

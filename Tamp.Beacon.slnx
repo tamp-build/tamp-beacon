@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="README.md" />
+    <File Path="LICENSE" />
+    <File Path="CHANGELOG.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path=".gitignore" />
+    <File Path="Dockerfile" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Tamp.Beacon/Tamp.Beacon.csproj" />
+    <Project Path="src/Tamp.Beacon.Sdk/Tamp.Beacon.Sdk.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Tamp.Beacon.Tests/Tamp.Beacon.Tests.csproj" />
+  </Folder>
+</Solution>
