@@ -48,9 +48,12 @@ Thumbs.db
 
 # Node / Yarn
 node_modules/
-.yarn/cache/
-.yarn/install-state.gz
-.yarn/build-state.yml
+**/.yarn/*
+!**/.yarn/patches
+!**/.yarn/plugins
+!**/.yarn/releases
+!**/.yarn/sdks
+!**/.yarn/versions
 .pnp.*
 yarn-error.log
 .npm/
