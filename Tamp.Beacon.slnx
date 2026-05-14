@@ -11,7 +11,6 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Tamp.Beacon/Tamp.Beacon.csproj" />
-    <Project Path="src/Tamp.Beacon.Sdk/Tamp.Beacon.Sdk.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Tamp.Beacon.Tests/Tamp.Beacon.Tests.csproj" />

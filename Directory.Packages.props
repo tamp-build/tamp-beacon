@@ -12,25 +12,33 @@
     <PackageVersion Include="Bogus" Version="35.6.1" />
     <PackageVersion Include="coverlet.collector" Version="6.0.2" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.11.0" />
   </ItemGroup>
 
   <ItemGroup Label="Source link">
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
   </ItemGroup>
 
-  <ItemGroup Label="Tamp packages — pinned to the 1.4.0 wave; satellites at their latest published 0.x">
-    <PackageVersion Include="Tamp.Core" Version="1.4.0" />
-    <PackageVersion Include="Tamp.NetCli.V10" Version="1.4.0" />
+  <ItemGroup Label="Tamp packages — pinned to the 1.9.0 wave">
+    <PackageVersion Include="Tamp.Core" Version="1.9.0" />
+    <PackageVersion Include="Tamp.NetCli.V10" Version="1.5.0" />
     <PackageVersion Include="Tamp.Yarn.V4" Version="0.1.1" />
     <PackageVersion Include="Tamp.Vite.V5" Version="0.1.1" />
     <PackageVersion Include="Tamp.Docker.V27" Version="0.3.0" />
     <PackageVersion Include="Tamp.Http" Version="0.1.1" />
+    <PackageVersion Include="Tamp.Telemetry" Version="0.1.0" />
   </ItemGroup>
 
-  <ItemGroup Label="Storage + Web Push">
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.7" />
+  <ItemGroup Label="Storage — Postgres (bundled in single image; overridable via BEACON_DB_CONNECTION_STRING)">
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.7" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Abstractions" Version="10.0.7" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.7" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.7" />
     <PackageVersion Include="Dapper" Version="2.1.72" />
+  </ItemGroup>
+
+  <ItemGroup Label="Web Push (deferred to Slice 6 — pinned for forward consistency)">
     <PackageVersion Include="WebPush" Version="1.0.12" />
   </ItemGroup>
 
@@ -38,7 +46,8 @@
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0" />
   </ItemGroup>
 
-  <ItemGroup Label="Auth — GitHub Actions OIDC verification on the ingress path">
+  <ItemGroup Label="Auth — TAM-214: argon2id password hashing + JWT for forthcoming GH OIDC (Slice 2)">
+    <PackageVersion Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
   </ItemGroup>
 

@@ -1,50 +1,43 @@
-using System.Collections.Generic;
+using System;
+using System.ComponentModel.DataAnnotations;
 
 namespace Tamp.Beacon.Auth;
 
 /// <summary>
-/// Bound from the <c>Beacon:Auth</c> config section. Controls whether the OTLP
-/// ingress path requires a verified GitHub Actions OIDC token, and the
-/// repo_owner / repo → organization allowlist that maps verified tokens to
-/// the organization scope they may submit telemetry as.
+/// Bound from the <c>Beacon:Auth</c> config section. Holds the policy knobs
+/// for the TAM-214 auth model: setup-token TTL, password-hash work factors,
+/// and (in Slice 2) the GitHub OIDC client config.
 /// </summary>
 public sealed class AuthOptions
 {
-    public const string DefaultIssuer = "https://token.actions.githubusercontent.com";
+    /// <summary>
+    /// How long a printed setup token is valid before <c>POST /setup</c> must
+    /// be invoked. Restarting the process before consumption mints a fresh
+    /// token (see TAM-214 threat model — restart is the recovery handle when
+    /// the operator loses the original stdout copy).
+    /// </summary>
+    [Range(60, 24 * 60 * 60)]
+    public int SetupTokenTtlSeconds { get; set; } = 60 * 60;
 
-    /// <summary><c>Disabled</c> (default) skips auth entirely — paired with loopback-only binding
-    /// this is the local-dev posture. <c>OidcGitHub</c> enforces a verified GitHub Actions JWT on
-    /// every OTLP ingress request.</summary>
-    public AuthMode Mode { get; set; } = AuthMode.Disabled;
+    /// <summary>
+    /// Setup-token entropy. 32 bytes = 256 bits, base64url-encoded =
+    /// 43-character token printed at boot.
+    /// </summary>
+    [Range(16, 128)]
+    public int SetupTokenEntropyBytes { get; set; } = 32;
 
-    /// <summary>Required <c>aud</c> claim on incoming JWTs. Workflows request this audience when
-    /// minting a token via <c>$ACTIONS_ID_TOKEN_REQUEST_URL?audience=&lt;value&gt;</c>.</summary>
-    public string Audience { get; set; } = "tamp-beacon";
+    /// <summary>
+    /// argon2id memory cost (KiB). 64 MiB is the OWASP 2023 floor for
+    /// interactive logins; tunable upward as hardware budget allows.
+    /// </summary>
+    [Range(8 * 1024, 1024 * 1024)]
+    public int Argon2MemoryKib { get; set; } = 64 * 1024;
 
-    /// <summary>OIDC issuer. Overridable for tests; production stays on the GitHub default.</summary>
-    public string Issuer { get; set; } = DefaultIssuer;
+    /// <summary>argon2id iterations. OWASP 2023 floor = 3.</summary>
+    [Range(1, 10)]
+    public int Argon2Iterations { get; set; } = 3;
 
-    /// <summary>Allowlist of repo_owner / repo claims → organization. Order matters: the first
-    /// matching entry wins. An incoming JWT whose <c>repository_owner</c>+<c>repository</c> do not
-    /// match any entry is rejected with 403.</summary>
-    public List<OrganizationMapping> Organizations { get; set; } = new();
-}
-
-public enum AuthMode
-{
-    Disabled,
-    OidcGitHub,
-}
-
-/// <summary>
-/// One row of the allowlist. <c>RepoOwner</c> must match the JWT's <c>repository_owner</c>
-/// exactly (case-insensitive). <c>Repo</c> is optional — when null the mapping applies to
-/// every repo under that owner; when set, the JWT's <c>repository</c> claim (which has the
-/// shape <c>owner/name</c>) must match <c>owner/Repo</c> exactly.
-/// </summary>
-public sealed class OrganizationMapping
-{
-    public string RepoOwner { get; set; } = "";
-    public string? Repo { get; set; }
-    public string Organization { get; set; } = "";
+    /// <summary>argon2id parallelism. Single-threaded keeps web-tier CPU bursty rather than sustained.</summary>
+    [Range(1, 16)]
+    public int Argon2Parallelism { get; set; } = 1;
 }

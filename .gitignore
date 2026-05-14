@@ -72,6 +72,8 @@ web/dist/
 *.sqlite-shm
 *.sqlite-wal
 vapid.key
+setup.token
+src/Tamp.Beacon/dev-data/
 /var/lib/tamp-beacon/
 beacon-data/
 

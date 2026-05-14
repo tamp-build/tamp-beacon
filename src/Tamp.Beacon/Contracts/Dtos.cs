@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
-namespace Tamp.Beacon.Sdk;
+namespace Tamp.Beacon.Contracts;
 
 /// <summary>
 /// DTOs for the tamp-beacon HTTP/JSON API. Stable shape — adding fields is
@@ -141,14 +141,6 @@ public sealed record FlakyTarget
 public sealed record FlakyTargetList
 {
     [JsonPropertyName("targets")] public IReadOnlyList<FlakyTarget> Targets { get; init; } = Array.Empty<FlakyTarget>();
-}
-
-public sealed record HealthStatus
-{
-    [JsonPropertyName("status")] public string Status { get; init; } = "ok";
-    [JsonPropertyName("db_path")] public string DbPath { get; init; } = "";
-    [JsonPropertyName("rows_total")] public long RowsTotal { get; init; }
-    [JsonPropertyName("vapid_public_key")] public string VapidPublicKey { get; init; } = "";
 }
 
 public sealed record PushSubscriptionRequest

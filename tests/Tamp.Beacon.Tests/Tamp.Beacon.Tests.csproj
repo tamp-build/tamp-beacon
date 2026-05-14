@@ -14,12 +14,12 @@
     <PackageReference Include="Bogus" />
     <PackageReference Include="coverlet.collector" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Tamp.Beacon\Tamp.Beacon.csproj" />
-    <ProjectReference Include="..\..\src\Tamp.Beacon.Sdk\Tamp.Beacon.Sdk.csproj" />
   </ItemGroup>
 
 </Project>

@@ -7,25 +7,38 @@
     <AssemblyName>Tamp.Beacon</AssemblyName>
     <IsPackable>false</IsPackable>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <!-- The wwwroot directory is populated by Build.cs after `yarn build`; the empty
-         placeholder is checked in so dotnet publish doesn't fail on the first inner-loop
-         build before yarn has run. -->
     <UserSecretsId>tamp-beacon-dev</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Dapper" />
-    <PackageReference Include="WebPush" />
+    <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
   </ItemGroup>
 
+  <!--
+    Slice 1 scope = scaffold + bootstrap + health. The pre-pivot
+    implementation's OTLP receivers, Web Push, and dashboard endpoints
+    are kept on disk (preserved in v0.0.1-archive) but excluded from
+    compilation until their respective slices land. Re-including them
+    progressively:
+      Slice 4 — re-include Otlp/** + Api/OtlpEndpoints.cs + Api/BuildsEndpoints.cs
+                + Api/ProjectsEndpoints.cs + Api/TargetsEndpoints.cs
+      Slice 6 — re-include Push/** + Api/PushEndpoints.cs
+  -->
   <ItemGroup>
-    <ProjectReference Include="..\Tamp.Beacon.Sdk\Tamp.Beacon.Sdk.csproj" />
+    <Compile Remove="Api\BuildsEndpoints.cs" />
+    <Compile Remove="Api\ProjectsEndpoints.cs" />
+    <Compile Remove="Api\TargetsEndpoints.cs" />
+    <Compile Remove="Api\PushEndpoints.cs" />
+    <Compile Remove="Api\OtlpEndpoints.cs" />
+    <Compile Remove="Otlp\**\*.cs" />
+    <Compile Remove="Push\**\*.cs" />
   </ItemGroup>
 
 </Project>
