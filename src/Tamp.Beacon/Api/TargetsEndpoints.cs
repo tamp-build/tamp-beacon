@@ -27,6 +27,8 @@ public static class TargetsEndpoints
     {
         app.MapGet("/api/projects/{slug}/targets/slowest", SlowestAsync).RequireAuthorization();
         app.MapGet("/api/projects/{slug}/targets/flakiest", FlakiestAsync).RequireAuthorization();
+        app.MapGet("/api/projects/{slug}/configs/{configSlug}/targets/slowest", ConfigSlowestAsync).RequireAuthorization();
+        app.MapGet("/api/projects/{slug}/configs/{configSlug}/targets/flakiest", ConfigFlakiestAsync).RequireAuthorization();
         return app;
     }
 
@@ -91,6 +93,92 @@ public static class TargetsEndpoints
         var rows = await db.Targets.AsNoTracking()
             .Where(t => t.Build.ProjectId == gate.Project!.Id &&
                         t.StartedUnixNs >= sinceNs)
+            .Select(t => new { t.Name, t.Status })
+            .ToListAsync(cancel).ConfigureAwait(false);
+
+        var grouped = rows
+            .GroupBy(t => t.Name)
+            .Where(g => g.Count() >= minSamples)
+            .Select(g =>
+            {
+                var failed = g.Count(x => x.Status != "success" && x.Status != "skipped");
+                return new FlakyTarget
+                {
+                    Name = g.Key,
+                    FailRate = (double)failed / g.Count(),
+                    Samples = g.Count(),
+                };
+            })
+            .Where(s => s.FailRate > 0)
+            .OrderByDescending(s => s.FailRate)
+            .ThenByDescending(s => s.Samples)
+            .Take(clamp)
+            .ToList();
+
+        return Results.Ok(new FlakyTargetList { Targets = grouped });
+    }
+
+    // ─── per-config slowest / flakiest ────────────────────────────────────
+
+    private static async Task<IResult> ConfigSlowestAsync(
+        string slug,
+        string configSlug,
+        HttpContext ctx,
+        BeaconDbContext db,
+        ProjectAuthorization auth,
+        int? limit,
+        long? since_unix_ns,
+        CancellationToken cancel)
+    {
+        var (gate, config) = await BuildConfigsEndpoints.GateAsync(
+            ctx, slug, configSlug, ProjectRole.Viewer, auth, db, cancel).ConfigureAwait(false);
+        if (gate is not null) return gate;
+
+        var sinceNs = since_unix_ns ?? 0;
+        var clamp = Math.Clamp(limit ?? DefaultLimit, 1, MaxLimit);
+
+        var rows = await db.Targets.AsNoTracking()
+            .Where(t => t.Build.BuildConfigId == config!.Id && t.StartedUnixNs >= sinceNs)
+            .Select(t => new { t.Name, t.DurationNs })
+            .ToListAsync(cancel).ConfigureAwait(false);
+
+        var grouped = rows
+            .GroupBy(t => t.Name)
+            .Select(g => new TargetStat
+            {
+                Name = g.Key,
+                AvgDurationNs = g.Average(x => (double)x.DurationNs),
+                P95DurationNs = Percentile(g.Select(x => x.DurationNs).ToList(), 0.95),
+                Samples = g.Count(),
+            })
+            .OrderByDescending(s => s.AvgDurationNs)
+            .Take(clamp)
+            .ToList();
+
+        return Results.Ok(new TargetStatList { Targets = grouped });
+    }
+
+    private static async Task<IResult> ConfigFlakiestAsync(
+        string slug,
+        string configSlug,
+        HttpContext ctx,
+        BeaconDbContext db,
+        ProjectAuthorization auth,
+        int? limit,
+        int? samples_min,
+        long? since_unix_ns,
+        CancellationToken cancel)
+    {
+        var (gate, config) = await BuildConfigsEndpoints.GateAsync(
+            ctx, slug, configSlug, ProjectRole.Viewer, auth, db, cancel).ConfigureAwait(false);
+        if (gate is not null) return gate;
+
+        var sinceNs = since_unix_ns ?? 0;
+        var clamp = Math.Clamp(limit ?? DefaultLimit, 1, MaxLimit);
+        var minSamples = Math.Max(1, samples_min ?? DefaultSamplesMin);
+
+        var rows = await db.Targets.AsNoTracking()
+            .Where(t => t.Build.BuildConfigId == config!.Id && t.StartedUnixNs >= sinceNs)
             .Select(t => new { t.Name, t.Status })
             .ToListAsync(cancel).ConfigureAwait(false);
 

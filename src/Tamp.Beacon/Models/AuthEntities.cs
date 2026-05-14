@@ -95,6 +95,40 @@ public sealed class Project
 
     public ICollection<ProjectMember> Members { get; set; } = new List<ProjectMember>();
     public ICollection<ProjectToken> Tokens { get; set; } = new List<ProjectToken>();
+    public ICollection<BuildConfig> Configs { get; set; } = new List<BuildConfig>();
+}
+
+/// <summary>
+/// A named build pipeline under a <see cref="Project"/> — for example
+/// <c>main-ci</c>, <c>pr-validation</c>, <c>nightly</c>. Builds attach
+/// to a BuildConfig, not directly to a Project; the project FK is
+/// reachable via the config's <see cref="ProjectId"/>.
+/// <para>
+/// First ingest under a never-seen config name auto-creates a config
+/// under the token's project. The reserved slug <c>default</c> backs
+/// the legacy adopter case where the emit side hasn't started sending
+/// the <c>tamp.build.config.name</c> tag yet.
+/// </para>
+/// </summary>
+public sealed class BuildConfig
+{
+    public long Id { get; set; }
+
+    public long ProjectId { get; set; }
+    public Project Project { get; set; } = null!;
+
+    /// <summary>URL-safe slug — unique per project. Lowercase a-z 0-9 hyphen.</summary>
+    public string Slug { get; set; } = "";
+
+    /// <summary>Human display name.</summary>
+    public string Name { get; set; } = "";
+
+    public string? Description { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>Soft-archive flag; archived configs don't ingest new builds and don't appear in lists.</summary>
+    public DateTimeOffset? ArchivedAt { get; set; }
 }
 
 /// <summary>SonarQube-style two-tier RBAC on a project.</summary>

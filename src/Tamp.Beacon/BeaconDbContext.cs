@@ -32,6 +32,7 @@ public sealed class BeaconDbContext(DbContextOptions<BeaconDbContext> options) :
     public DbSet<SetupState> SetupStateEntries => Set<SetupState>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Project> Projects => Set<Project>();
+    public DbSet<BuildConfig> BuildConfigs => Set<BuildConfig>();
     public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
     public DbSet<ProjectToken> ProjectTokens => Set<ProjectToken>();
     public DbSet<IdentityProvider> IdentityProviders => Set<IdentityProvider>();
@@ -56,6 +57,9 @@ public sealed class BeaconDbContext(DbContextOptions<BeaconDbContext> options) :
             b.Property(x => x.ProjectId).HasColumnName("project_id");
             b.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => x.ProjectId).HasDatabaseName("ix_builds_project_id");
+            b.Property(x => x.BuildConfigId).HasColumnName("build_config_id");
+            b.HasOne(x => x.BuildConfig).WithMany().HasForeignKey(x => x.BuildConfigId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => x.BuildConfigId).HasDatabaseName("ix_builds_build_config_id");
             b.Property(x => x.Organization).HasColumnName("organization").IsRequired();
             b.Property(x => x.ProjectName).HasColumnName("project_name").IsRequired();
             b.Property(x => x.ProjectArea).HasColumnName("project_area");
@@ -207,6 +211,22 @@ public sealed class BeaconDbContext(DbContextOptions<BeaconDbContext> options) :
 
             b.HasOne(x => x.CreatedBy).WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(x => x.Slug).IsUnique().HasDatabaseName("ix_projects_slug");
+        });
+
+        modelBuilder.Entity<BuildConfig>(b =>
+        {
+            b.ToTable("build_configs");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
+            b.Property(x => x.ProjectId).HasColumnName("project_id");
+            b.Property(x => x.Slug).HasColumnName("slug").IsRequired();
+            b.Property(x => x.Name).HasColumnName("name").IsRequired();
+            b.Property(x => x.Description).HasColumnName("description");
+            b.Property(x => x.CreatedAt).HasColumnName("created_at");
+            b.Property(x => x.ArchivedAt).HasColumnName("archived_at");
+
+            b.HasOne(x => x.Project).WithMany(p => p.Configs).HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => new { x.ProjectId, x.Slug }).IsUnique().HasDatabaseName("ix_build_configs_project_slug");
         });
 
         modelBuilder.Entity<ProjectMember>(b =>

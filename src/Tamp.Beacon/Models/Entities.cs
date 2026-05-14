@@ -17,12 +17,21 @@ public sealed class Build
     public long Seq { get; set; }
 
     /// <summary>
-    /// FK to <see cref="Project"/>. Derived from the ingest token at write time;
-    /// authoritative for RBAC. The <see cref="ProjectName"/> string is the
-    /// adopter-supplied display label and may diverge.
+    /// FK to <see cref="Project"/> — denormalized for the cross-project list
+    /// query path. Source of truth is <see cref="BuildConfig.ProjectId"/>;
+    /// the receiver writes both at ingest time so they can't drift.
     /// </summary>
     public long ProjectId { get; set; }
     public Project Project { get; set; } = null!;
+
+    /// <summary>
+    /// Authoritative routing FK — every Build belongs to a BuildConfig (a
+    /// pipeline like <c>main-ci</c> or <c>nightly</c>). Resolved at ingest
+    /// from the <c>tamp.build.config.name</c> tag on the Build span, falling
+    /// back to <c>default</c> when the tag is absent.
+    /// </summary>
+    public long BuildConfigId { get; set; }
+    public BuildConfig BuildConfig { get; set; } = null!;
 
     public string ProjectName { get; set; } = "unknown";
     public string? ProjectArea { get; set; }

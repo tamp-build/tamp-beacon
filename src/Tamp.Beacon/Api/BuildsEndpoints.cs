@@ -28,6 +28,7 @@ public static class BuildsEndpoints
         app.MapGet("/api/builds", ListAllAsync).RequireAuthorization();
         app.MapGet("/api/builds/{id:long}", DetailAsync).RequireAuthorization();
         app.MapGet("/api/projects/{slug}/builds", ProjectListAsync).RequireAuthorization();
+        app.MapGet("/api/projects/{slug}/configs/{configSlug}/builds", ConfigListAsync).RequireAuthorization();
         return app;
     }
 
@@ -157,6 +158,66 @@ public static class BuildsEndpoints
         var nextSeq = rows.Count == 0
             ? (since_seq ?? 0)
             : rows[^1].Seq;
+        return Results.Ok(new BuildListResponse { Builds = rows, NextSeq = nextSeq });
+    }
+
+    // ─── GET /api/projects/{slug}/configs/{configSlug}/builds ────────────
+
+    private static async Task<IResult> ConfigListAsync(
+        string slug,
+        string configSlug,
+        HttpContext ctx,
+        BeaconDbContext db,
+        ProjectAuthorization auth,
+        long? since_seq,
+        string? outcome,
+        int? limit,
+        CancellationToken cancel)
+    {
+        var (gate, config) = await BuildConfigsEndpoints.GateAsync(
+            ctx, slug, configSlug, ProjectRole.Viewer, auth, db, cancel).ConfigureAwait(false);
+        if (gate is not null) return gate;
+
+        var query = db.Builds.AsNoTracking().Where(b => b.BuildConfigId == config!.Id);
+
+        if (since_seq is long sinceSeq) query = query.Where(b => b.Seq > sinceSeq);
+        if (!string.IsNullOrWhiteSpace(outcome))
+        {
+            var o = outcome.Trim().ToLowerInvariant();
+            if (o is not ("success" or "failure"))
+                return Results.BadRequest(new { error = "outcome must be 'success' or 'failure'" });
+            query = query.Where(b => b.Outcome == o);
+        }
+
+        var clamp = ClampLimit(limit);
+        var rows = await query
+            .OrderBy(b => b.Seq)
+            .Take(clamp)
+            .Select(b => new BuildSummary
+            {
+                Id = b.Id,
+                Seq = b.Seq,
+                ProjectSlug = b.Project.Slug,
+                Organization = b.Organization,
+                ProjectName = b.ProjectName,
+                ProjectArea = b.ProjectArea,
+                CliVersion = b.CliVersion,
+                StartedUnixNs = b.StartedUnixNs,
+                DurationNs = b.DurationNs,
+                ExitCode = b.ExitCode,
+                Outcome = b.Outcome,
+                TargetsTotal = b.TargetsTotal,
+                TargetsFailed = b.TargetsFailed,
+                CommandsTotal = b.CommandsTotal,
+                FailureTarget = b.FailureTarget,
+                HostOs = b.HostOs,
+                HostArch = b.HostArch,
+                CiVendor = b.CiVendor,
+                PeakMemoryBytes = b.PeakMemoryBytes,
+            })
+            .ToListAsync(cancel).ConfigureAwait(false);
+
+        var nextSeq = rows.Count == 0 ? (since_seq ?? 0) : rows[^1].Seq;
         return Results.Ok(new BuildListResponse { Builds = rows, NextSeq = nextSeq });
     }
 

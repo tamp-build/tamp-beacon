@@ -32,6 +32,12 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
     public const string TargetSource = "Tamp.Build.Targets";
     public const string CommandSource = "Tamp.Build.Commands";
 
+    /// <summary>ADR-0018 tag carrying the BuildConfig name on a Build span.</summary>
+    public const string ConfigNameTag = "tamp.build.config.name";
+
+    /// <summary>Reserved BuildConfig slug used when adopters don't supply <see cref="ConfigNameTag"/>.</summary>
+    public const string DefaultConfigSlug = "default";
+
     public async Task<TraceIngestResult> IngestAsync(
         ExportTraceRequest request,
         Project project,
@@ -62,7 +68,10 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
         {
             foreach (var span in scope.Spans)
             {
-                var build = MaterializeBuild(span, project);
+                var bag = TagBag.Flatten(span.Attributes);
+                var configName = TagBag.GetString(bag, ConfigNameTag) ?? DefaultConfigSlug;
+                var config = await ResolveOrCreateConfigAsync(project, configName, ct).ConfigureAwait(false);
+                var build = MaterializeBuild(span, project, config, bag);
                 db.Builds.Add(build);
                 var traceHex = HexOf(span.TraceId);
                 if (!string.IsNullOrEmpty(traceHex))
@@ -147,10 +156,13 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
     {
         var bag = TagBag.Flatten(span.Attributes);
         var projectName = TagBag.GetString(bag, "tamp.build.project.name") ?? project.Slug;
+        var configName = TagBag.GetString(bag, ConfigNameTag) ?? DefaultConfigSlug;
+        var config = await ResolveOrCreateConfigAsync(project, configName, ct).ConfigureAwait(false);
         var build = new Build
         {
             Seq = 0,
             ProjectId = project.Id,
+            BuildConfigId = config.Id,
             ProjectName = projectName,
             ProjectArea = TagBag.GetString(bag, "tamp.build.project.area"),
             Organization = TagBag.GetString(bag, "tamp.build.organization") ?? project.Slug,
@@ -163,6 +175,57 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
         db.Builds.Add(build);
         await AssignSeqAndSaveBuildsAsync(new[] { build }, ct).ConfigureAwait(false);
         return build;
+    }
+
+    /// <summary>
+    /// Look up an active BuildConfig by (project, slug). Auto-creates on first
+    /// sighting — first ingest from a new pipeline doesn't 422; it lands and
+    /// surfaces in the project's configs list for the admin to rename or
+    /// describe later.
+    /// </summary>
+    private async Task<BuildConfig> ResolveOrCreateConfigAsync(Project project, string rawName, CancellationToken ct)
+    {
+        var slug = NormalizeConfigSlug(rawName);
+        var existing = await db.BuildConfigs
+            .FirstOrDefaultAsync(c => c.ProjectId == project.Id && c.Slug == slug && c.ArchivedAt == null, ct)
+            .ConfigureAwait(false);
+        if (existing is not null) return existing;
+
+        var now = DateTimeOffset.UtcNow;
+        var config = new BuildConfig
+        {
+            ProjectId = project.Id,
+            Slug = slug,
+            Name = rawName.Trim().Length == 0 ? slug : rawName.Trim(),
+            CreatedAt = now,
+        };
+        db.BuildConfigs.Add(config);
+        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        return config;
+    }
+
+    private static string NormalizeConfigSlug(string raw)
+    {
+        // Mirror the project-slug rules: lowercase a-z 0-9 hyphen, 2-64
+        // chars, no leading/trailing hyphen. Inputs that don't fit get
+        // squashed: spaces + non-allowed chars → hyphens; collapse runs;
+        // trim hyphens. Empty result → "default".
+        var s = (raw ?? "").Trim().ToLowerInvariant();
+        if (s.Length == 0) return DefaultConfigSlug;
+        var sb = new System.Text.StringBuilder(s.Length);
+        char? last = null;
+        foreach (var c in s)
+        {
+            var allowed = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
+            char emit = allowed ? c : '-';
+            if (emit == '-' && last == '-') continue;
+            sb.Append(emit);
+            last = emit;
+        }
+        var trimmed = sb.ToString().Trim('-');
+        if (trimmed.Length < 2) return DefaultConfigSlug;
+        if (trimmed.Length > 64) trimmed = trimmed[..64].TrimEnd('-');
+        return trimmed.Length < 2 ? DefaultConfigSlug : trimmed;
     }
 
     private async Task AssignSeqAndSaveBuildsAsync(IEnumerable<Build> builds, CancellationToken ct)
@@ -179,17 +242,18 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 
-    private static Build MaterializeBuild(OtlpSpan span, Project project)
+    private static Build MaterializeBuild(OtlpSpan span, Project project, BuildConfig config, Dictionary<string, object?> bag)
     {
-        var bag = TagBag.Flatten(span.Attributes);
         var projectName = TagBag.GetString(bag, "tamp.build.project.name") ?? project.Slug;
-        // The project FK is the auth-derived source of truth; the tags are
-        // adopter-controlled and saved as denormalized hints for the SPA.
+        // The project + config FKs are the auth-derived sources of truth;
+        // the tags are adopter-controlled and saved as denormalized hints
+        // for the SPA.
         var organization = TagBag.GetString(bag, "tamp.build.organization") ?? project.Slug;
         return new Build
         {
             Seq = 0,
             ProjectId = project.Id,
+            BuildConfigId = config.Id,
             ProjectName = projectName,
             ProjectArea = TagBag.GetString(bag, "tamp.build.project.area"),
             Organization = organization,

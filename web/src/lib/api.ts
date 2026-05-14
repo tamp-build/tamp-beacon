@@ -85,6 +85,25 @@ export interface ProjectSummary {
   my_role: 'admin' | 'viewer';
 }
 
+export interface BuildConfigLastBuild {
+  build_id: number;
+  seq: number;
+  outcome: string;
+  duration_ns: number;
+  started_unix_ns: number;
+}
+
+export interface BuildConfigSummary {
+  slug: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  archived_at: string | null;
+  total_builds: number;
+  cpu_time_ms_sum: number;
+  last_build: BuildConfigLastBuild | null;
+}
+
 export interface ProjectMember {
   id: number;
   username: string;
@@ -201,6 +220,43 @@ export const api = {
   updateProject: (slug: string, body: { name?: string; description?: string | null }) =>
     patchJson<ProjectSummary>(`/api/projects/${slug}`, body),
   archiveProject: (slug: string) => del<void>(`/api/projects/${slug}`),
+
+  // ─── build configs ─────────────────────────────────────────────────
+  listConfigs: (slug: string) =>
+    request<{ configs: BuildConfigSummary[] }>(`/api/projects/${slug}/configs`),
+  getConfig: (slug: string, configSlug: string) =>
+    request<BuildConfigSummary>(`/api/projects/${slug}/configs/${configSlug}`),
+  createConfig: (slug: string, body: { slug: string; name: string; description?: string | null }) =>
+    postJson<BuildConfigSummary>(`/api/projects/${slug}/configs`, body),
+  updateConfig: (slug: string, configSlug: string, body: { name?: string; description?: string | null }) =>
+    patchJson<BuildConfigSummary>(`/api/projects/${slug}/configs/${configSlug}`, body),
+  archiveConfig: (slug: string, configSlug: string) =>
+    del<void>(`/api/projects/${slug}/configs/${configSlug}`),
+  listConfigBuilds: (
+    slug: string,
+    configSlug: string,
+    params: { sinceSeq?: number; outcome?: 'success' | 'failure'; limit?: number } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.sinceSeq != null) qs.set('since_seq', String(params.sinceSeq));
+    if (params.outcome) qs.set('outcome', params.outcome);
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    const url = `/api/projects/${slug}/configs/${configSlug}/builds${qs.toString() ? `?${qs.toString()}` : ''}`;
+    return request<BuildList>(url);
+  },
+  slowestConfigTargets: (slug: string, configSlug: string, params: { limit?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    const url = `/api/projects/${slug}/configs/${configSlug}/targets/slowest${qs.toString() ? `?${qs.toString()}` : ''}`;
+    return request<{ targets: TargetStat[] }>(url);
+  },
+  flakiestConfigTargets: (slug: string, configSlug: string, params: { limit?: number; samplesMin?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    if (params.samplesMin != null) qs.set('samples_min', String(params.samplesMin));
+    const url = `/api/projects/${slug}/configs/${configSlug}/targets/flakiest${qs.toString() ? `?${qs.toString()}` : ''}`;
+    return request<{ targets: FlakyTarget[] }>(url);
+  },
 
   // ─── members ───────────────────────────────────────────────────────
   listMembers: (slug: string) =>

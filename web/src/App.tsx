@@ -6,6 +6,8 @@ import BuildsPage from '@/pages/builds';
 import BuildDetailPage from '@/pages/build-detail';
 import ProjectsPage from '@/pages/projects';
 import ProjectDetailPage from '@/pages/project-detail';
+import ProjectSettingsPage from '@/pages/project-settings';
+import ConfigDetailPage from '@/pages/config-detail';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth';
@@ -62,6 +64,8 @@ function AppShell() {
           <Route path="/" element={<Navigate to="/projects" replace />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:slug" element={<ProjectDetailPage />} />
+          <Route path="/projects/:slug/settings" element={<ProjectSettingsPage />} />
+          <Route path="/projects/:slug/configs/:configSlug" element={<ConfigDetailPage />} />
           <Route path="/builds" element={<BuildsPage />} />
           <Route path="/builds/:id" element={<BuildDetailPage />} />
           <Route path="*" element={<Navigate to="/projects" replace />} />

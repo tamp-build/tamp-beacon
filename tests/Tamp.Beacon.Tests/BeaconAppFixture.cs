@@ -161,15 +161,36 @@ public class BeaconAppFixture : IAsyncLifetime
         long durationNs = 100_000_000_000L,
         string? projectName = null,
         string[]? successfulTargets = null,
-        string[]? failedTargets = null)
+        string[]? failedTargets = null,
+        string configSlug = "default")
     {
         using var scope = Factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<BeaconDbContext>();
+
+        // TAM-215 — every Build needs a BuildConfig FK. Get-or-create a
+        // matching config under this project so seeded test data has a
+        // valid attachment point.
+        var config = await db.BuildConfigs
+            .FirstOrDefaultAsync(c => c.ProjectId == projectId && c.Slug == configSlug);
+        if (config is null)
+        {
+            config = new Tamp.Beacon.Models.BuildConfig
+            {
+                ProjectId = projectId,
+                Slug = configSlug,
+                Name = configSlug,
+                CreatedAt = DateTimeOffset.UtcNow,
+            };
+            db.BuildConfigs.Add(config);
+            await db.SaveChangesAsync();
+        }
+
         var maxSeq = await db.Builds.MaxAsync(b => (long?)b.Seq) ?? 0;
         var build = new Tamp.Beacon.Models.Build
         {
             Seq = maxSeq + 1,
             ProjectId = projectId,
+            BuildConfigId = config.Id,
             ProjectName = projectName ?? "seeded",
             Organization = projectName ?? "seeded",
             StartedUnixNs = startedUnixNs,

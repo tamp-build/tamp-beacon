@@ -106,6 +106,7 @@ app.MapAuth();
 app.MapProjects();
 app.MapProjectMembers();
 app.MapProjectTokens();
+app.MapBuildConfigs();
 app.MapAdminUsers();
 app.MapBuilds();
 app.MapTargets();
