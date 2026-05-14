@@ -9,11 +9,21 @@ using WebPush;
 namespace Tamp.Beacon.Push;
 
 /// <summary>
+/// Abstraction over the Web Push transport so the alert worker can be
+/// tested without standing up a real push service. Production wiring
+/// resolves to <see cref="WebPushSender"/>.
+/// </summary>
+public interface IWebPushSender
+{
+    Task<bool> SendAsync(Models.PushSubscription sub, object payload, CancellationToken ct = default);
+}
+
+/// <summary>
 /// Wraps <c>WebPush.WebPushClient</c> with logging and per-subscription
 /// failure isolation. A single subscription that's gone stale (HTTP 404
 /// from the push service) does not abort the broadcast.
 /// </summary>
-public sealed class WebPushSender(VapidKeyStore vapid, ILogger<WebPushSender> logger)
+public sealed class WebPushSender(VapidKeyStore vapid, ILogger<WebPushSender> logger) : IWebPushSender
 {
     private readonly WebPushClient _client = new();
 

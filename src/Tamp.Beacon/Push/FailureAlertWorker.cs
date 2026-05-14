@@ -13,7 +13,9 @@ namespace Tamp.Beacon.Push;
 /// <summary>
 /// Background worker that polls the DB for newly-arrived failure builds
 /// (by monotonic <c>seq</c>) and pushes a notification to every matching
-/// subscription. Coalesced by project + target + configured window.
+/// subscription. Matched on <see cref="Models.Build.ProjectId"/> — the
+/// auth-derived FK survives project rename. Coalesced by project + target
+/// within <see cref="BeaconOptions.FailureAlertWindowSeconds"/>.
 /// </summary>
 public sealed class FailureAlertWorker : BackgroundService
 {
@@ -38,13 +40,19 @@ public sealed class FailureAlertWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Seed _lastSeenSeq from the current max so we don't re-notify on every restart.
-        using (var seedScope = _scopes.CreateScope())
+        try
         {
-            var db = seedScope.ServiceProvider.GetRequiredService<BeaconDbContext>();
-            _lastSeenSeq = await db.Builds.MaxAsync(b => (long?)b.Seq, stoppingToken).ConfigureAwait(false) ?? 0;
+            using (var seedScope = _scopes.CreateScope())
+            {
+                var db = seedScope.ServiceProvider.GetRequiredService<BeaconDbContext>();
+                _lastSeenSeq = await db.Builds.MaxAsync(b => (long?)b.Seq, stoppingToken).ConfigureAwait(false) ?? 0;
+            }
+            _logger.LogInformation("FailureAlertWorker seeded at seq={Seq}", _lastSeenSeq);
         }
-        _logger.LogInformation("FailureAlertWorker seeded at seq={Seq}", _lastSeenSeq);
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "FailureAlertWorker could not seed _lastSeenSeq on startup; will retry");
+        }
 
         var interval = TimeSpan.FromMilliseconds(Math.Max(50, _options.FailureWorkerIntervalMs));
 
@@ -71,7 +79,7 @@ public sealed class FailureAlertWorker : BackgroundService
     {
         using var scope = _scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<BeaconDbContext>();
-        var sender = scope.ServiceProvider.GetRequiredService<WebPushSender>();
+        var sender = scope.ServiceProvider.GetRequiredService<IWebPushSender>();
 
         var newFailures = await db.Builds
             .AsNoTracking()
@@ -86,25 +94,23 @@ public sealed class FailureAlertWorker : BackgroundService
 
         foreach (var build in newFailures)
         {
-            if (!_coalescer.ShouldEmit(build.ProjectName, build.FailureTarget))
+            if (!_coalescer.ShouldEmit(build.ProjectId, build.FailureTarget))
             {
-                _logger.LogDebug("Coalesced failure notification for {Project}/{Target}",
-                    build.ProjectName, build.FailureTarget);
+                _logger.LogDebug("Coalesced failure notification for project={ProjectId} target={Target}",
+                    build.ProjectId, build.FailureTarget);
                 continue;
             }
 
             var matches = await db.PushSubscriptions
                 .AsNoTracking()
-                .Where(s =>
-                    (s.ProjectFilter == null || s.ProjectFilter == build.ProjectName) &&
-                    (s.AreaFilter == null || s.AreaFilter == build.ProjectArea))
+                .Where(s => s.ProjectId == build.ProjectId)
                 .ToListAsync(ct)
                 .ConfigureAwait(false);
 
             var payload = new
             {
                 title = $"{build.ProjectName} build failed",
-                body = build.FailureTarget is { } t
+                body = build.FailureTarget is { Length: > 0 } t
                     ? $"target {t} failed (exit {build.ExitCode})"
                     : $"exit {build.ExitCode}",
                 url = $"/builds/{build.Id}",

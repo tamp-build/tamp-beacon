@@ -132,11 +132,19 @@ public sealed class PushSubscription
     public string P256dh { get; set; } = "";
     public string Auth { get; set; } = "";
 
-    /// <summary>null = all projects.</summary>
-    public string? ProjectFilter { get; set; }
+    /// <summary>
+    /// User who owns this subscription. Subscriptions are deleted with
+    /// their owner via cascade — disabled users stop receiving alerts.
+    /// </summary>
+    public long UserId { get; set; }
+    public User User { get; set; } = null!;
 
-    /// <summary>null = all areas.</summary>
-    public string? AreaFilter { get; set; }
+    /// <summary>
+    /// Project the subscription is scoped to. Cascade on project archive
+    /// keeps the table clean when projects retire.
+    /// </summary>
+    public long ProjectId { get; set; }
+    public Project Project { get; set; } = null!;
 
     public long CreatedUnixNs { get; set; }
 }

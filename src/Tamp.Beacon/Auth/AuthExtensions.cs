@@ -52,6 +52,21 @@ public static class AuthExtensions
         services.AddScoped<ProjectTokenService>();
         services.AddScoped<Otlp.OtlpTraceReceiver>();
         services.AddSingleton<Otlp.OtlpMetricReceiver>();
+
+        // Web Push wiring (slice 6).
+        services.AddSingleton<Push.VapidKeyStore>(sp =>
+        {
+            var opts = sp.GetRequiredService<IOptions<BeaconOptions>>().Value;
+            return new Push.VapidKeyStore(opts.VapidKeyPath, opts.VapidSubject);
+        });
+        services.AddSingleton<Push.FailureCoalescer>(sp =>
+        {
+            var opts = sp.GetRequiredService<IOptions<BeaconOptions>>().Value;
+            return new Push.FailureCoalescer(TimeSpan.FromSeconds(opts.FailureAlertWindowSeconds));
+        });
+        services.AddScoped<Push.IWebPushSender, Push.WebPushSender>();
+        services.AddHostedService<Push.FailureAlertWorker>();
+
         services.AddHostedService<SetupTokenManager>();
 
         AddDataProtection(services, config);

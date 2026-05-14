@@ -49,9 +49,12 @@
                 + Api/ProjectsEndpoints.cs + Api/TargetsEndpoints.cs
       Slice 6 — re-include Push/** + Api/PushEndpoints.cs
   -->
+  <!--
+    All pre-pivot source is now compiled. Slice 6 re-included the
+    Push/** subtree + Api/PushEndpoints.cs.
+  -->
   <ItemGroup>
-    <Compile Remove="Api\PushEndpoints.cs" />
-    <Compile Remove="Push\**\*.cs" />
+    <PackageReference Include="WebPush" />
   </ItemGroup>
 
 </Project>

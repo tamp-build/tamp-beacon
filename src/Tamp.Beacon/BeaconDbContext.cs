@@ -151,11 +151,14 @@ public sealed class BeaconDbContext(DbContextOptions<BeaconDbContext> options) :
             b.Property(x => x.Endpoint).HasColumnName("endpoint").IsRequired();
             b.Property(x => x.P256dh).HasColumnName("p256dh").IsRequired();
             b.Property(x => x.Auth).HasColumnName("auth").IsRequired();
-            b.Property(x => x.ProjectFilter).HasColumnName("project_filter");
-            b.Property(x => x.AreaFilter).HasColumnName("area_filter");
+            b.Property(x => x.UserId).HasColumnName("user_id");
+            b.Property(x => x.ProjectId).HasColumnName("project_id");
             b.Property(x => x.CreatedUnixNs).HasColumnName("created_unix_ns");
 
+            b.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => x.Endpoint).IsUnique().HasDatabaseName("ix_push_endpoint");
+            b.HasIndex(x => new { x.UserId, x.ProjectId }).HasDatabaseName("ix_push_user_project");
         });
     }
 

@@ -80,4 +80,5 @@ beacon-data/
 # Bundled wwwroot is generated; only checked-in files are placeholders
 src/Tamp.Beacon/wwwroot/assets/
 src/Tamp.Beacon/wwwroot/index.html
+src/Tamp.Beacon/wwwroot/sw.js
 !src/Tamp.Beacon/wwwroot/.gitkeep

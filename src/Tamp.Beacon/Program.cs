@@ -110,6 +110,7 @@ app.MapAdminUsers();
 app.MapBuilds();
 app.MapTargets();
 app.MapOtlp();
+app.MapPush();
 
 // SPA fallback — any non-matched GET serves index.html so client-side
 // routes (/projects, /builds/123, …) resolve.

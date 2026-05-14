@@ -7,8 +7,14 @@ import { AuthProvider } from '@/lib/auth';
 import App from './App';
 import './index.css';
 
-// Service worker registration for Web Push lands in slice 6; the slice-5b
-// build doesn't ship sw.js so we skip registration entirely.
+// Service worker registration for Web Push. Falls through silently when
+// the browser doesn't support service workers, or we're served over plain
+// http on a non-localhost origin. The dashboard works without push.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch((err) => {
+    console.warn('service worker registration failed', err);
+  });
+}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

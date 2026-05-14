@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
@@ -38,6 +39,14 @@ public class BeaconAppFixture : IAsyncLifetime
     /// Populated keys win over the base fixture's defaults.
     /// </summary>
     protected Dictionary<string, string?> ConfigOverrides { get; } = new();
+
+    /// <summary>
+    /// Hook for fixture subclasses to substitute DI services (e.g. swap
+    /// the live <c>IWebPushSender</c> for a recording fake). Runs after
+    /// the production service registrations, so AddSingleton calls here
+    /// replace the production binding.
+    /// </summary>
+    protected virtual void ConfigureTestServices(IServiceCollection services) { }
 
     public WebApplicationFactory<Program> Factory => _factory
         ?? throw new InvalidOperationException("fixture not initialized — InitializeAsync must run first");
@@ -216,17 +225,19 @@ public class BeaconAppFixture : IAsyncLifetime
         _tokenPath = Path.Combine(Path.GetTempPath(), $"beacon-test-{Guid.NewGuid():N}.token");
         _dpKeyDir = Path.Combine(Path.GetTempPath(), $"beacon-test-dp-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_dpKeyDir);
+        var vapidKeyPath = Path.Combine(Path.GetTempPath(), $"beacon-test-vapid-{Guid.NewGuid():N}.key");
 
         var config = new Dictionary<string, string?>
         {
             ["Beacon:ConnectionString"] = _pg.GetConnectionString(),
             ["Beacon:SetupTokenPath"] = _tokenPath,
+            ["Beacon:VapidKeyPath"] = vapidKeyPath,
             ["Beacon:Auth:DataProtectionKeyDirectory"] = _dpKeyDir,
             ["Beacon:Auth:BreakGlassFailureBucketSize"] = "1000",
         };
         foreach (var kv in ConfigOverrides) config[kv.Key] = kv.Value;
 
-        _factory = new BeaconWebFactory(config);
+        _factory = new BeaconWebFactory(config, ConfigureTestServices);
         // Trigger host build so the SetupTokenManager runs and the banner
         // is persisted to _tokenPath.
         _ = _factory.Services;
@@ -249,7 +260,13 @@ public class BeaconAppFixture : IAsyncLifetime
     private sealed class BeaconWebFactory : WebApplicationFactory<Program>
     {
         private readonly Dictionary<string, string?> _config;
-        public BeaconWebFactory(Dictionary<string, string?> config) => _config = config;
+        private readonly Action<IServiceCollection> _configureTestServices;
+
+        public BeaconWebFactory(Dictionary<string, string?> config, Action<IServiceCollection> configureTestServices)
+        {
+            _config = config;
+            _configureTestServices = configureTestServices;
+        }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -258,6 +275,7 @@ public class BeaconAppFixture : IAsyncLifetime
             {
                 cfg.AddInMemoryCollection(_config);
             });
+            builder.ConfigureTestServices(_configureTestServices);
         }
     }
 }

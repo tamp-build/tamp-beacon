@@ -229,6 +229,14 @@ export const api = {
   },
   getBuild: (id: number) => request<BuildDetail>(`/api/builds/${id}`),
 
+  // ─── web push ──────────────────────────────────────────────────────
+  subscribePush: (
+    slug: string,
+    body: { endpoint: string; keys: { p256dh: string; auth: string } },
+  ) => postJson<{ id: number; updated: boolean }>(`/api/projects/${slug}/push/subscribe`, body),
+  unsubscribePush: (slug: string, body: { endpoint: string }) =>
+    postJson<void>(`/api/projects/${slug}/push/unsubscribe`, body),
+
   // ─── target rollups ────────────────────────────────────────────────
   slowestTargets: (slug: string, params: { limit?: number; sinceUnixNs?: number } = {}) => {
     const qs = new URLSearchParams();

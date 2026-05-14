@@ -1,8 +1,14 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, KeyRound, ShieldOff, Trash, UserPlus } from 'lucide-react';
+import { Bell, BellOff, Copy, KeyRound, ShieldOff, Trash, UserPlus } from 'lucide-react';
 import { api, ApiError, type BuildSummary, type MintedToken } from '@/lib/api';
+import {
+  detectPushStatus,
+  subscribeToProject,
+  unsubscribeFromProject,
+  type PushStatus,
+} from '@/lib/push';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -62,9 +68,176 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
+      <NotificationsCard slug={slug} />
+      <RollupCards slug={slug} />
       <BuildsCard slug={slug} />
       <MembersCard slug={slug} canManage={project.data?.my_role === 'admin'} />
       <TokensCard slug={slug} canManage={project.data?.my_role === 'admin'} />
+    </div>
+  );
+}
+
+function NotificationsCard({ slug }: { slug: string }) {
+  const [status, setStatus] = useState<PushStatus>({ kind: 'unsupported' });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void detectPushStatus().then((s) => {
+      if (!cancelled) setStatus(s);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function onSubscribe() {
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(await subscribeToProject(slug));
+    } catch (e) {
+      setError(extractError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onUnsubscribe() {
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(await unsubscribeFromProject(slug));
+    } catch (e) {
+      setError(extractError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          <span>Notifications</span>
+          {status.kind === 'subscribed' ? (
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void onUnsubscribe()}>
+              <BellOff className="h-4 w-4 mr-1" />
+              Disable
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              disabled={busy || status.kind === 'unsupported' || status.kind === 'denied'}
+              onClick={() => void onSubscribe()}
+            >
+              <Bell className="h-4 w-4 mr-1" />
+              Enable
+            </Button>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="text-sm text-muted-foreground">
+        {status.kind === 'subscribed' && <p>This browser will receive Web Push alerts on failed builds.</p>}
+        {status.kind === 'not_subscribed' && <p>Click "Enable" to receive a notification when a build fails.</p>}
+        {status.kind === 'denied' && (
+          <p>Notification permission was denied in this browser. Re-enable site permissions to subscribe.</p>
+        )}
+        {status.kind === 'unsupported' && (
+          <p>This browser doesn't support Web Push (or you're on a non-HTTPS origin other than localhost).</p>
+        )}
+        {error && <p className="text-destructive mt-2">{error}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function formatDuration(avgNs: number): string {
+  const ms = avgNs / 1_000_000;
+  if (ms < 1000) return `${ms.toFixed(0)} ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)} s`;
+  return `${(s / 60).toFixed(1)} m`;
+}
+
+function RollupCards({ slug }: { slug: string }) {
+  const slowest = useQuery({
+    queryKey: ['slowest', slug],
+    queryFn: () => api.slowestTargets(slug, { limit: 5 }),
+    refetchInterval: 30_000,
+  });
+  const flakiest = useQuery({
+    queryKey: ['flakiest', slug],
+    queryFn: () => api.flakiestTargets(slug, { limit: 5 }),
+    refetchInterval: 30_000,
+  });
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle>Slowest targets</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {(slowest.data?.targets ?? []).length === 0 ? (
+            <p className="text-muted-foreground text-sm">No target data yet.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Avg</TableHead>
+                  <TableHead>p95</TableHead>
+                  <TableHead>Samples</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {slowest.data!.targets.map((t) => (
+                  <TableRow key={t.name}>
+                    <TableCell className="font-mono">{t.name}</TableCell>
+                    <TableCell>{formatDuration(t.avg_duration_ns)}</TableCell>
+                    <TableCell>{formatDuration(t.p95_duration_ns)}</TableCell>
+                    <TableCell className="text-muted-foreground">{t.samples}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Flakiest targets</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {(flakiest.data?.targets ?? []).length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              No flaky targets — all targets succeed (or have fewer than 3 samples).
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Fail rate</TableHead>
+                  <TableHead>Samples</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {flakiest.data!.targets.map((t) => (
+                  <TableRow key={t.name}>
+                    <TableCell className="font-mono">{t.name}</TableCell>
+                    <TableCell>{(t.fail_rate * 100).toFixed(0)}%</TableCell>
+                    <TableCell className="text-muted-foreground">{t.samples}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

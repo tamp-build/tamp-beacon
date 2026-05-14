@@ -37,4 +37,18 @@ public sealed class BeaconOptions
     /// VAPID <c>sub</c> claim. Same lazy posture as <see cref="VapidKeyPath"/>.
     /// </summary>
     public string VapidSubject { get; set; } = "mailto:beacon@tamp.local";
+
+    /// <summary>
+    /// Coalesce window for failure alerts. Within this window, repeat
+    /// failures on the same (project, target) tuple emit one push, not N.
+    /// </summary>
+    [System.ComponentModel.DataAnnotations.Range(1, 24 * 60 * 60)]
+    public int FailureAlertWindowSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// FailureAlertWorker scan interval. The worker is cheap when there
+    /// are no new failures (one SELECT MAX(seq)); 1s default is fine.
+    /// </summary>
+    [System.ComponentModel.DataAnnotations.Range(50, 60_000)]
+    public int FailureWorkerIntervalMs { get; set; } = 1000;
 }

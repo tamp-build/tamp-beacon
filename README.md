@@ -11,9 +11,9 @@ Tamp builds emit a pinned diagnostics contract (ADR 0018) — three `ActivitySou
 | Volume | `/var/lib/tamp-beacon` (Postgres datadir + setup token + VAPID key) |
 | Status | preview — slice-1 in progress, see "Build slices" below |
 
-## Slice-5b status (you are here)
+## Slice-6 status (you are here)
 
-This branch ships **slices 1–5b**. The full v0.1.0 user experience is in place: the React + Vite + Tailwind + shadcn SPA wires login, projects, members, ingest-token mint, cross-project builds list, per-project builds, and build-detail drill-down. Polling-based delta updates against `since_seq` keep the dashboard live; no SSE/WebSocket. The beacon serves the bundled SPA from `wwwroot/` with `MapFallbackToFile` covering client-side routes.
+This branch ships **slices 1–6** — feature-complete v0.1.0 surface. Failure alerts via Web Push: VAPID keys auto-generate on first boot and persist to the PVC, project members opt in per-browser, and a background worker fans out one notification per (project, target) coalesce window. The SPA gains a notifications card on each project, plus slowest/flakiest target rollups.
 
 ### Running locally
 
@@ -104,6 +104,13 @@ GET    /api/projects/{slug}/targets/slowest   → 200 { targets: [{ name, avg_du
        ?limit=20&since_unix_ns=N
 GET    /api/projects/{slug}/targets/flakiest  → 200 { targets: [{ name, fail_rate, samples }] }
        ?limit=20&samples_min=3&since_unix_ns=N
+
+GET    /api/push/vapid-public-key             → 200 { public_key }            (public, no auth)
+GET    /api/projects/{slug}/push              → 200 { subscriptions: [...] } | 404 (non-member)
+POST   /api/projects/{slug}/push/subscribe    → 201 { id, updated:false }
+                                              → 200 { id, updated:true }  (re-subscribe upserts)
+                                              → 400 (missing endpoint/keys) | 404 (non-member)
+POST   /api/projects/{slug}/push/unsubscribe  → 204                           | 400 | 404
 ```
 
 ### OTLP ingest
@@ -144,7 +151,7 @@ curl -X POST https://beacon.example.com/admin/recover \
 | 4 | OTLP/HTTP protobuf+JSON ingest gated by project tokens + Build→Project FK | shipped |
 | 5a | Read API surface (builds list/detail + slowest/flakiest rollups) | shipped |
 | 5b | SPA dashboard wired against the slice-5a API | shipped |
-| 6 | Web Push failure alerts (VAPID, project-scoped) | pending |
+| 6 | Web Push failure alerts + slowest/flakiest UI cards | shipped |
 | 7 | Docs + on-ramp polish + 1.0 cut | pending |
 
 ## Auth model (TAM-214)
