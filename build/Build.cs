@@ -11,6 +11,7 @@ using Tamp.NetCli.V10;
 using Tamp.Yarn.V4;
 using Tamp.Docker.V27;
 using Tamp.Http;
+using Tamp.Telemetry;
 
 /// <summary>
 /// tamp-beacon's dogfooded build pipeline. Uses Tamp's own satellites end-to-end:
@@ -19,7 +20,14 @@ using Tamp.Http;
 /// </summary>
 class Build : TampBuild
 {
-    public static int Main(string[] args) => Execute<Build>(args);
+    public static int Main(string[] args)
+    {
+        // Wire OTLP export when the canonical env vars are set
+        // (OTEL_EXPORTER_OTLP_ENDPOINT + OTEL_EXPORTER_OTLP_HEADERS). With
+        // them unset this is a no-op — same Main() shape works local + CI.
+        using var telemetry = TampTelemetry.FromEnvironment();
+        return Execute<Build>(args);
+    }
 
     [Parameter("Build configuration")]
     Configuration Configuration = IsLocalBuild ? Configuration.Debug : Configuration.Release;
@@ -36,9 +44,6 @@ class Build : TampBuild
 
     [Solution] readonly Solution Solution = null!;
     [GitRepository] readonly GitRepository Git = null!;
-
-    [Secret("NuGet API key", EnvironmentVariable = "NUGET_API_KEY")]
-    readonly Secret NuGetApiKey = null!;
 
     [FromPath("yarn")] readonly Tool YarnTool = null!;
 
@@ -121,18 +126,6 @@ class Build : TampBuild
             .SetNoBuild(true)
             .SetResultsDirectory(Artifacts / "test-results")));
 
-    Target Pack => _ => _
-        .DependsOn(Test)
-        .Description("Packs the Tamp.Beacon.Sdk NuGet (the dashboard ships as a Docker image, not a nupkg).")
-        .Executes(() => DotNet.Pack(s =>
-        {
-            s.SetProject(RootDirectory / "src" / "Tamp.Beacon.Sdk" / "Tamp.Beacon.Sdk.csproj");
-            s.SetConfiguration(Configuration);
-            s.SetNoBuild(true);
-            s.SetOutput(Artifacts);
-            if (!string.IsNullOrEmpty(Version)) s.SetProperty("Version", Version);
-        }));
-
     Target Publish => _ => _
         .DependsOn(Test)
         .Description("dotnet publish Tamp.Beacon, self-contained, for the container image (one rid per platform).")
@@ -161,38 +154,24 @@ class Build : TampBuild
 
     Target SmokeQa => _ => _
         .DependsOn(DockerBuild)
-        .Description("Spins up the built image with docker run (shell), waits for /healthz via HttpProbe, then tears down.")
+        .Description("Spins up the built image, waits for /healthz on :8080, then tears down.")
         .Executes(async () =>
         {
-            // The Tamp.Docker.V27 satellite covers buildx + compose; for a one-shot `docker run`
-            // smoke we shell out directly. Acceptable since the docker CLI presence is already a
-            // hard pre-req for DockerBuild itself.
             var imageRef = $"ghcr.io/tamp-build/tamp-beacon:{ImageTag}";
             var containerName = $"tamp-beacon-smoke-{Guid.NewGuid():N}";
 
-            RunShell("docker", $"run -d --name {containerName} -p 4318:4318 {imageRef}");
+            RunShell("docker", $"run -d --name {containerName} -p 8080:8080 {imageRef}");
             try
             {
                 await HttpProbe.WaitForHealthy(
-                    "http://localhost:4318/healthz",
-                    TimeSpan.FromSeconds(30));
+                    "http://localhost:8080/healthz",
+                    TimeSpan.FromSeconds(60));
             }
             finally
             {
                 RunShell("docker", $"rm -f {containerName}", ignoreFailure: true);
             }
         });
-
-    Target Push => _ => _
-        .DependsOn(Pack)
-        .Requires(() => NuGetApiKey != null)
-        .Description("Pushes Tamp.Beacon.Sdk.nupkg to nuget.org (independent of docker push, which is gated on tag builds via env var).")
-        .Executes(() => Artifacts.GlobFiles("*.nupkg")
-            .Select(p => DotNet.NuGetPush(s => s
-                .SetPackagePath(p)
-                .SetSource("https://api.nuget.org/v3/index.json")
-                .SetApiKey(NuGetApiKey)
-                .SetSkipDuplicate(true))));
 
     Target Ci => _ => _
         .DependsOn(Info, Clean, Test, DockerBuild);
