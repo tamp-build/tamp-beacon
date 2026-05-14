@@ -33,7 +33,6 @@
   -->
   <ItemGroup>
     <Compile Remove="Api\BuildsEndpoints.cs" />
-    <Compile Remove="Api\ProjectsEndpoints.cs" />
     <Compile Remove="Api\TargetsEndpoints.cs" />
     <Compile Remove="Api\PushEndpoints.cs" />
     <Compile Remove="Api\OtlpEndpoints.cs" />

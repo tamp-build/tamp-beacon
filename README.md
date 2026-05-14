@@ -11,9 +11,9 @@ Tamp builds emit a pinned diagnostics contract (ADR 0018) — three `ActivitySou
 | Volume | `/var/lib/tamp-beacon` (Postgres datadir + setup token + VAPID key) |
 | Status | preview — slice-1 in progress, see "Build slices" below |
 
-## Slice-2 status (you are here)
+## Slice-3 status (you are here)
 
-This branch ships **slice 1 (scaffold + bootstrap + health) + slice 2 (cookie auth + GitHub OAuth + admin recovery)**. The auth surface is feature-complete from line one: local admin break-glass login over an argon2id-hashed password, GitHub OAuth sign-in with login + org allowlist, sliding-window cookie sessions backed by data-protection keys persisted to the PVC, and a `kubectl exec`-driven password-recovery CLI that mints a one-shot reset token. OTLP receivers, dashboards, and Web Push come online in later slices.
+This branch ships **slices 1 + 2 + 3**: scaffold + bootstrap + health, cookie/OAuth auth, and now project CRUD with SonarQube-style two-tier RBAC and per-project ingest tokens. A signed-in user can create projects, manage members (admin/viewer roles, min-one-admin invariant), and mint revocable ingest tokens for their CI pipeline. System admins see every project and can promote/demote/disable users. OTLP receivers wire to those tokens in slice 4.
 
 ### Running slice 1 locally
 
@@ -55,7 +55,32 @@ GET  /me                     → 200 { username, display_name, is_system_admin, 
 GET  /signin/github          → 302 → GitHub | 404 (when OAuth not configured)
 GET  /signin/github/callback → 302 home + Set-Cookie | 403 (not in allowlist)
 POST /admin/recover          → 200 | 400 | 401
+
+GET    /api/projects                          → 200 { projects: [...] }       (filtered by RBAC)
+POST   /api/projects                          → 201 (creator becomes admin)   | 400 | 409
+GET    /api/projects/{slug}                   → 200 { project }               | 404
+PATCH  /api/projects/{slug}                   → 200                           | 403 | 404
+DELETE /api/projects/{slug}                   → 204 (soft-archive)            | 403 | 404
+
+GET    /api/projects/{slug}/members           → 200 { members: [...] }        | 404
+POST   /api/projects/{slug}/members           → 201                           | 403 | 404 | 409
+PATCH  /api/projects/{slug}/members/{id}      → 200                           | 403 | 404 | 409 (min-one-admin)
+DELETE /api/projects/{slug}/members/{id}      → 204                           | 403 | 404 | 409 (min-one-admin)
+
+GET    /api/projects/{slug}/tokens            → 200 { tokens: [...] }         | 403 | 404
+POST   /api/projects/{slug}/tokens            → 201 { token: "<plaintext>", ... }  (shown ONCE)
+DELETE /api/projects/{slug}/tokens/{id}       → 204
+
+GET    /api/admin/users                       → 200 { users: [...] }          | 403
+POST   /api/admin/users/{u}/promote           → 200                           | 403 | 404
+POST   /api/admin/users/{u}/demote            → 200                           | 403 | 404 | 409 (min-one-sysadmin)
+POST   /api/admin/users/{u}/disable           → 200                           | 403 | 404 | 409
+POST   /api/admin/users/{u}/enable            → 200                           | 403 | 404
 ```
+
+### RBAC model
+
+Non-members of a project see **404** on every project-specific route, not 403 — project existence is itself sensitive (SonarQube semantics). System admins bypass project-level checks and see / mutate every project. Min-one-admin invariants are enforced at the service layer (last project admin can't be demoted or removed; last system admin can't be demoted or disabled).
 
 ### Admin password recovery
 
@@ -76,7 +101,7 @@ curl -X POST https://beacon.example.com/admin/recover \
 |---|---|---|
 | 1 | scaffold + bootstrap + health | shipped |
 | 2 | GitHub OAuth login + cookie session + admin break-glass + admin recovery CLI | shipped |
-| 3 | Project CRUD + RBAC (admin/viewer) + per-project ingest tokens | pending |
+| 3 | Project CRUD + RBAC (admin/viewer) + per-project ingest tokens + sysadmin promotion | shipped |
 | 4 | OTLP/HTTP `/v1/traces` + `/v1/metrics` ingest gated by project tokens | pending |
 | 5 | SPA dashboard (builds list, drill-down, slow/flaky targets) | pending |
 | 6 | Web Push failure alerts (VAPID, project-scoped) | pending |

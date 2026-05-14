@@ -4,6 +4,7 @@ using System.IO;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -100,6 +101,42 @@ public class BeaconAppFixture : IAsyncLifetime
             display_name = username,
         });
         resp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>
+    /// Seed a user directly via DI (skips the setup-token path). Useful
+    /// when tests need multiple users with known credentials — sysadmin,
+    /// viewer, non-member, etc.
+    /// </summary>
+    public async Task SeedUserAsync(string username, string password, bool isSystemAdmin = false)
+    {
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BeaconDbContext>();
+        var hasher = scope.ServiceProvider.GetRequiredService<Tamp.Beacon.Auth.PasswordHasher>();
+        var existing = await db.Users.FirstOrDefaultAsync(u => u.Username == username);
+        if (existing is not null) return;
+        db.Users.Add(new Tamp.Beacon.Models.User
+        {
+            Username = username,
+            DisplayName = username,
+            PasswordHash = hasher.Hash(password),
+            IsSystemAdmin = isSystemAdmin,
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Logs in via /break-glass and returns a cookie-handling HttpClient
+    /// whose subsequent requests carry the session cookie. Tests that
+    /// switch between identities use multiple of these.
+    /// </summary>
+    public async Task<System.Net.Http.HttpClient> LoginAsAsync(string username, string password)
+    {
+        var client = CreateCookieClient();
+        var resp = await client.PostAsJsonAsync("/break-glass", new { username, password });
+        resp.EnsureSuccessStatusCode();
+        return client;
     }
 
     public virtual async Task InitializeAsync()

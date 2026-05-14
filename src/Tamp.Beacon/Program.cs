@@ -95,6 +95,10 @@ app.UseAuthorization();
 app.MapHealth();
 app.MapSetup();
 app.MapAuth();
+app.MapProjects();
+app.MapProjectMembers();
+app.MapProjectTokens();
+app.MapAdminUsers();
 
 app.Run();
 return 0;

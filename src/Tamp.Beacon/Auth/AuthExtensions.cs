@@ -48,6 +48,8 @@ public static class AuthExtensions
         services.AddSingleton<PasswordHasher>();
         services.AddScoped<PasswordResetService>();
         services.AddScoped<GitHubUserProvisioner>();
+        services.AddScoped<ProjectAuthorization>();
+        services.AddScoped<ProjectTokenService>();
         services.AddHostedService<SetupTokenManager>();
 
         AddDataProtection(services, config);
