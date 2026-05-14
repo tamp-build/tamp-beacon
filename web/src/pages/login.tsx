@@ -1,8 +1,8 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { GitBranch } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
-import { ApiError } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,6 +15,30 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [setupCheck, setSetupCheck] = useState<'pending' | 'ok' | 'needs-setup'>('pending');
+  const justCompleted =
+    (location.state as { setupJustCompleted?: boolean } | null)?.setupJustCompleted === true;
+
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .setupStatus()
+      .then((s) => {
+        if (cancelled) return;
+        setSetupCheck(s.is_complete ? 'ok' : 'needs-setup');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Fall through to login form on probe failure — backend might
+        // be momentarily up-but-migrating; user can retry.
+        setSetupCheck('ok');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (setupCheck === 'needs-setup') return <Navigate to="/setup" replace />;
 
   if (session) {
     const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? '/';
@@ -51,6 +75,11 @@ export default function LoginPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
+          {justCompleted && (
+            <p className="mb-4 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
+              Admin created. Sign in with the credentials you just set.
+            </p>
+          )}
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium" htmlFor="username">

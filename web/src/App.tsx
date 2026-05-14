@@ -1,6 +1,7 @@
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Activity, FolderTree, GitBranch, LogOut } from 'lucide-react';
 import LoginPage from '@/pages/login';
+import SetupPage from '@/pages/setup';
 import BuildsPage from '@/pages/builds';
 import BuildDetailPage from '@/pages/build-detail';
 import ProjectsPage from '@/pages/projects';
@@ -73,6 +74,7 @@ function AppShell() {
 export default function App() {
   return (
     <Routes>
+      <Route path="/setup" element={<SetupPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route
         path="*"

@@ -171,12 +171,27 @@ function del<T>(url: string): Promise<T> {
   return request<T>(url, { method: 'DELETE' });
 }
 
+export interface SetupStatus {
+  awaiting_setup: boolean;
+  is_complete: boolean;
+  token_issued_at: string | null;
+}
+
+export interface SetupResponse {
+  username: string;
+  display_name: string;
+  created_at: string;
+}
+
 export const api = {
-  // ─── session ───────────────────────────────────────────────────────
+  // ─── session + bootstrap ──────────────────────────────────────────
   me: () => request<Session>('/me'),
   breakGlass: (body: { username: string; password: string }) =>
     postJson<Session>('/break-glass', body),
   logout: () => postJson<{ status: string }>('/logout', {}),
+  setupStatus: () => request<SetupStatus>('/setup/status'),
+  setup: (body: { token: string; username: string; password: string; display_name?: string }) =>
+    postJson<SetupResponse>('/setup', body),
 
   // ─── projects ──────────────────────────────────────────────────────
   listProjects: () => request<{ projects: ProjectSummary[] }>('/api/projects'),
