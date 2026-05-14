@@ -1,120 +1,163 @@
 using System;
 using System.Linq;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
-using Tamp.Beacon.Sdk;
+using Tamp.Beacon.Auth;
+using Tamp.Beacon.Models;
 
 namespace Tamp.Beacon.Api;
 
+/// <summary>
+/// Aggregated target stats for a single project — the SPA dashboard uses
+/// these to surface "slowest" and "flakiest" target rosters. Both endpoints
+/// are RBAC-gated to project members (non-members get 404).
+/// </summary>
 public static class TargetsEndpoints
 {
+    public const int DefaultLimit = 20;
+    public const int MaxLimit = 200;
+    public const int DefaultSamplesMin = 3;
+
     public static IEndpointRouteBuilder MapTargets(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/targets/slowest", GetSlowestAsync);
-        app.MapGet("/api/targets/flakiest", GetFlakiestAsync);
+        app.MapGet("/api/projects/{slug}/targets/slowest", SlowestAsync).RequireAuthorization();
+        app.MapGet("/api/projects/{slug}/targets/flakiest", FlakiestAsync).RequireAuthorization();
         return app;
     }
 
-    private static async Task<IResult> GetSlowestAsync(
+    private static async Task<IResult> SlowestAsync(
+        string slug,
+        HttpContext ctx,
         BeaconDbContext db,
-        [FromQuery] string? project,
-        [FromQuery(Name = "since_unix_ns")] long? sinceUnixNs,
-        [FromQuery] int? limit,
-        CancellationToken ct)
+        ProjectAuthorization auth,
+        int? limit,
+        long? since_unix_ns,
+        CancellationToken cancel)
     {
-        var take = Math.Clamp(limit ?? 20, 1, 200);
-        var query =
-            from t in db.Targets.AsNoTracking()
-            join b in db.Builds.AsNoTracking() on t.BuildId equals b.Id
-            where (project == null || b.ProjectName == project)
-               && (sinceUnixNs == null || t.StartedUnixNs >= sinceUnixNs)
-            select new { t, b };
+        var gate = await auth.RequireAsync(ctx, slug, ProjectRole.Viewer, cancel).ConfigureAwait(false);
+        if (gate.Gate != ProjectGate.Ok) return ProjectsEndpoints.Map(gate);
 
-        // Group + aggregate in memory: EF Core's GROUP BY translation can't always emit
-        // PERCENTILE_DISC against SQLite (it lacks the function), so we project the raw
-        // rows then post-process. v0.1.0 row counts make this fine.
-        var rows = await query
-            .Select(x => new { x.t.Name, x.b.ProjectName, x.t.DurationNs })
-            .ToListAsync(ct);
+        var sinceNs = since_unix_ns ?? 0;
+        var clamp = Math.Clamp(limit ?? DefaultLimit, 1, MaxLimit);
+
+        // Average + sample count per (target name) within the project. Postgres
+        // PERCENTILE_CONT exposed as EF.Functions in Npgsql 8+; we approximate
+        // p95 by ordering targets by duration_ns and grabbing the 0.95 row in
+        // C# space — at the v0.1 sample volumes this is cheap and exact.
+        var rows = await db.Targets.AsNoTracking()
+            .Where(t => t.Build.ProjectId == gate.Project!.Id &&
+                        t.StartedUnixNs >= sinceNs)
+            .Select(t => new { t.Name, t.DurationNs })
+            .ToListAsync(cancel).ConfigureAwait(false);
 
         var grouped = rows
-            .GroupBy(x => new { x.Name, x.ProjectName })
-            .Select(g =>
+            .GroupBy(t => t.Name)
+            .Select(g => new TargetStat
             {
-                var samples = g.Select(x => x.DurationNs).OrderBy(x => x).ToList();
-                return new TargetStat
-                {
-                    Name = g.Key.Name,
-                    ProjectName = g.Key.ProjectName,
-                    AvgDurationNs = samples.Average(),
-                    P95DurationNs = Percentile(samples, 0.95),
-                    Samples = samples.Count,
-                };
+                Name = g.Key,
+                AvgDurationNs = g.Average(x => (double)x.DurationNs),
+                P95DurationNs = Percentile(g.Select(x => x.DurationNs).ToList(), 0.95),
+                Samples = g.Count(),
             })
             .OrderByDescending(s => s.AvgDurationNs)
-            .Take(take)
+            .Take(clamp)
             .ToList();
 
         return Results.Ok(new TargetStatList { Targets = grouped });
     }
 
-    private static async Task<IResult> GetFlakiestAsync(
+    private static async Task<IResult> FlakiestAsync(
+        string slug,
+        HttpContext ctx,
         BeaconDbContext db,
-        [FromQuery] string? project,
-        [FromQuery(Name = "since_unix_ns")] long? sinceUnixNs,
-        [FromQuery] int? limit,
-        CancellationToken ct)
+        ProjectAuthorization auth,
+        int? limit,
+        int? samples_min,
+        long? since_unix_ns,
+        CancellationToken cancel)
     {
-        var take = Math.Clamp(limit ?? 20, 1, 200);
-        var query =
-            from t in db.Targets.AsNoTracking()
-            join b in db.Builds.AsNoTracking() on t.BuildId equals b.Id
-            where (project == null || b.ProjectName == project)
-               && (sinceUnixNs == null || t.StartedUnixNs >= sinceUnixNs)
-            select new { t, b };
+        var gate = await auth.RequireAsync(ctx, slug, ProjectRole.Viewer, cancel).ConfigureAwait(false);
+        if (gate.Gate != ProjectGate.Ok) return ProjectsEndpoints.Map(gate);
 
-        var rows = await query
-            .Select(x => new { x.t.Name, x.b.ProjectName, x.t.Status })
-            .ToListAsync(ct);
+        var sinceNs = since_unix_ns ?? 0;
+        var clamp = Math.Clamp(limit ?? DefaultLimit, 1, MaxLimit);
+        var minSamples = Math.Max(1, samples_min ?? DefaultSamplesMin);
+
+        var rows = await db.Targets.AsNoTracking()
+            .Where(t => t.Build.ProjectId == gate.Project!.Id &&
+                        t.StartedUnixNs >= sinceNs)
+            .Select(t => new { t.Name, t.Status })
+            .ToListAsync(cancel).ConfigureAwait(false);
 
         var grouped = rows
-            .GroupBy(x => new { x.Name, x.ProjectName })
+            .GroupBy(t => t.Name)
+            .Where(g => g.Count() >= minSamples)
             .Select(g =>
             {
-                var total = g.Count();
-                var failures = g.Count(x => string.Equals(x.Status, "failure", StringComparison.Ordinal));
+                var failed = g.Count(x => x.Status != "success" && x.Status != "skipped");
                 return new FlakyTarget
                 {
-                    Name = g.Key.Name,
-                    ProjectName = g.Key.ProjectName,
-                    FailRate = total == 0 ? 0 : (double)failures / total,
-                    Samples = total,
+                    Name = g.Key,
+                    FailRate = (double)failed / g.Count(),
+                    Samples = g.Count(),
                 };
             })
-            // Only report tuples with at least one failure AND a meaningful sample count.
-            .Where(s => s.FailRate > 0 && s.Samples >= 3)
+            .Where(s => s.FailRate > 0)
             .OrderByDescending(s => s.FailRate)
             .ThenByDescending(s => s.Samples)
-            .Take(take)
+            .Take(clamp)
             .ToList();
 
         return Results.Ok(new FlakyTargetList { Targets = grouped });
     }
 
-    private static double Percentile(System.Collections.Generic.List<long> sortedAsc, double p)
+    /// <summary>
+    /// Linear-interpolation percentile on a sorted long sequence. Cheap and
+    /// exact at v0.1 sample volumes; if a project ever exceeds 10⁵ targets per
+    /// hour this becomes a hot path and we'll push it into Postgres via
+    /// PERCENTILE_CONT.
+    /// </summary>
+    private static double Percentile(System.Collections.Generic.List<long> samples, double p)
     {
-        if (sortedAsc.Count == 0) return 0;
-        if (sortedAsc.Count == 1) return sortedAsc[0];
-        var rank = p * (sortedAsc.Count - 1);
+        if (samples.Count == 0) return 0;
+        samples.Sort();
+        if (samples.Count == 1) return samples[0];
+        var rank = p * (samples.Count - 1);
         var lo = (int)Math.Floor(rank);
         var hi = (int)Math.Ceiling(rank);
-        if (lo == hi) return sortedAsc[lo];
-        var weight = rank - lo;
-        return sortedAsc[lo] * (1 - weight) + sortedAsc[hi] * weight;
+        if (lo == hi) return samples[lo];
+        return samples[lo] + (rank - lo) * (samples[hi] - samples[lo]);
+    }
+
+    public sealed record TargetStat
+    {
+        [JsonPropertyName("name")] public string Name { get; init; } = "";
+        [JsonPropertyName("avg_duration_ns")] public double AvgDurationNs { get; init; }
+        [JsonPropertyName("p95_duration_ns")] public double P95DurationNs { get; init; }
+        [JsonPropertyName("samples")] public int Samples { get; init; }
+    }
+
+    public sealed record TargetStatList
+    {
+        [JsonPropertyName("targets")] public System.Collections.Generic.IReadOnlyList<TargetStat> Targets { get; init; }
+            = System.Array.Empty<TargetStat>();
+    }
+
+    public sealed record FlakyTarget
+    {
+        [JsonPropertyName("name")] public string Name { get; init; } = "";
+        [JsonPropertyName("fail_rate")] public double FailRate { get; init; }
+        [JsonPropertyName("samples")] public int Samples { get; init; }
+    }
+
+    public sealed record FlakyTargetList
+    {
+        [JsonPropertyName("targets")] public System.Collections.Generic.IReadOnlyList<FlakyTarget> Targets { get; init; }
+            = System.Array.Empty<FlakyTarget>();
     }
 }

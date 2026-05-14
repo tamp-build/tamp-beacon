@@ -99,6 +99,8 @@ app.MapProjects();
 app.MapProjectMembers();
 app.MapProjectTokens();
 app.MapAdminUsers();
+app.MapBuilds();
+app.MapTargets();
 app.MapOtlp();
 
 app.Run();

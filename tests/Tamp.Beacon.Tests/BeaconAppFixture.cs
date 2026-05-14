@@ -139,6 +139,71 @@ public class BeaconAppFixture : IAsyncLifetime
         return client;
     }
 
+    /// <summary>
+    /// Seed a Build row directly via EF for tests that want full control over
+    /// outcome / targets / status (the OTLP-ingest path is exercised in
+    /// <c>OtlpEndpointTests</c>; here we bypass it so build-shape concerns
+    /// don't leak into read-side test setup).
+    /// </summary>
+    public async Task<long> SeedBuildAsync(
+        long projectId,
+        string outcome = "success",
+        long startedUnixNs = 1_700_000_000_000_000_000L,
+        long durationNs = 100_000_000_000L,
+        string? projectName = null,
+        string[]? successfulTargets = null,
+        string[]? failedTargets = null)
+    {
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BeaconDbContext>();
+        var maxSeq = await db.Builds.MaxAsync(b => (long?)b.Seq) ?? 0;
+        var build = new Tamp.Beacon.Models.Build
+        {
+            Seq = maxSeq + 1,
+            ProjectId = projectId,
+            ProjectName = projectName ?? "seeded",
+            Organization = projectName ?? "seeded",
+            StartedUnixNs = startedUnixNs,
+            DurationNs = durationNs,
+            ExitCode = outcome == "success" ? 0 : 1,
+            Outcome = outcome,
+            TargetsTotal = (successfulTargets?.Length ?? 0) + (failedTargets?.Length ?? 0),
+            TargetsFailed = failedTargets?.Length ?? 0,
+            RawTags = "{}",
+        };
+        db.Builds.Add(build);
+        await db.SaveChangesAsync();
+
+        foreach (var n in successfulTargets ?? System.Array.Empty<string>())
+            db.Targets.Add(new Tamp.Beacon.Models.Target
+            {
+                BuildId = build.Id, Name = n, Status = "success",
+                StartedUnixNs = startedUnixNs, DurationNs = durationNs, RawTags = "{}",
+            });
+        foreach (var n in failedTargets ?? System.Array.Empty<string>())
+            db.Targets.Add(new Tamp.Beacon.Models.Target
+            {
+                BuildId = build.Id, Name = n, Status = "failure",
+                StartedUnixNs = startedUnixNs, DurationNs = durationNs, RawTags = "{}",
+            });
+        await db.SaveChangesAsync();
+        return build.Id;
+    }
+
+    /// <summary>
+    /// Spin up a project owned by the given admin client (uses /api/projects).
+    /// Returns the project_id resolved from the DB so subsequent SeedBuildAsync
+    /// calls can attach builds.
+    /// </summary>
+    public async Task<long> CreateProjectAsync(System.Net.Http.HttpClient adminClient, string slug, string name)
+    {
+        var resp = await adminClient.PostAsJsonAsync("/api/projects", new { slug, name });
+        resp.EnsureSuccessStatusCode();
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BeaconDbContext>();
+        return await db.Projects.Where(p => p.Slug == slug).Select(p => p.Id).SingleAsync();
+    }
+
     public virtual async Task InitializeAsync()
     {
         _pg = new PostgreSqlBuilder("postgres:17-alpine")

@@ -14,6 +14,9 @@ public sealed record BuildSummary
 {
     [JsonPropertyName("id")] public long Id { get; init; }
     [JsonPropertyName("seq")] public long Seq { get; init; }
+    /// <summary>Authoritative project routing key (FK slug). Stable across renames.</summary>
+    [JsonPropertyName("project_slug")] public string ProjectSlug { get; init; } = "";
+    /// <summary>Project display name at ingest time (denormalized hint; may drift if project renamed).</summary>
     [JsonPropertyName("organization")] public string Organization { get; init; } = "";
     [JsonPropertyName("project_name")] public string ProjectName { get; init; } = "";
     [JsonPropertyName("project_area")] public string? ProjectArea { get; init; }

@@ -11,9 +11,9 @@ Tamp builds emit a pinned diagnostics contract (ADR 0018) — three `ActivitySou
 | Volume | `/var/lib/tamp-beacon` (Postgres datadir + setup token + VAPID key) |
 | Status | preview — slice-1 in progress, see "Build slices" below |
 
-## Slice-4 status (you are here)
+## Slice-5a status (you are here)
 
-This branch ships **slices 1–4**. The beacon now accepts real OTLP traffic. `POST /v1/traces` (protobuf primary, OTLP/JSON tolerant) gates each request on an `Authorization: Bearer tbk_…` header resolved against the `ProjectToken` table, then persists Build / Target / Command / Event rows under the project that owns the token. Non-Tamp instrumentation scopes are rejected with 422; revoked tokens drop to 401. The next slice (5) wires the SPA dashboard against this data.
+This branch ships **slices 1–5a**. The receive path (slice 4) is now paired with a queryable read surface: `GET /api/builds` for cross-project listings with RBAC filtering + `since_seq` delta polling, `GET /api/builds/{id}` for full drill-down, per-project listings, and `slowest` / `flakiest` rollups. The SPA dashboard layer follows in slice 5b.
 
 ### Running slice 1 locally
 
@@ -81,6 +81,16 @@ POST   /v1/traces                             → 200 { partialSuccess: { reject
                                                                               | 400 (bad body) | 401 (no/bad/revoked token)
                                                                               | 422 (non-Tamp scope)
 POST   /v1/metrics                            → 200 (acked + dropped pre-v0.2)
+
+GET    /api/builds                            → 200 { builds: [...], next_seq } (RBAC-filtered)
+       ?project=<slug>&outcome=success|failure&since_seq=N&limit=50          | 400 (bad outcome)
+GET    /api/builds/{id}                       → 200 { build, targets, commands, events } | 404
+GET    /api/projects/{slug}/builds            → 200 { builds, next_seq }     | 404 (non-member)
+       ?since_seq=N&outcome=&limit=
+GET    /api/projects/{slug}/targets/slowest   → 200 { targets: [{ name, avg_duration_ns, p95_duration_ns, samples }] }
+       ?limit=20&since_unix_ns=N
+GET    /api/projects/{slug}/targets/flakiest  → 200 { targets: [{ name, fail_rate, samples }] }
+       ?limit=20&samples_min=3&since_unix_ns=N
 ```
 
 ### OTLP ingest
@@ -119,7 +129,8 @@ curl -X POST https://beacon.example.com/admin/recover \
 | 2 | GitHub OAuth login + cookie session + admin break-glass + admin recovery CLI | shipped |
 | 3 | Project CRUD + RBAC (admin/viewer) + per-project ingest tokens + sysadmin promotion | shipped |
 | 4 | OTLP/HTTP protobuf+JSON ingest gated by project tokens + Build→Project FK | shipped |
-| 5 | SPA dashboard (builds list, drill-down, slow/flaky targets) | pending |
+| 5a | Read API surface (builds list/detail + slowest/flakiest rollups) | shipped |
+| 5b | SPA dashboard wired against the slice-5a API | pending |
 | 6 | Web Push failure alerts (VAPID, project-scoped) | pending |
 | 7 | Docs + on-ramp polish + 1.0 cut | pending |
 
