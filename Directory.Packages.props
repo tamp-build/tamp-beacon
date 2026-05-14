@@ -26,7 +26,7 @@
     <PackageVersion Include="Tamp.Vite.V5" Version="0.1.1" />
     <PackageVersion Include="Tamp.Docker.V27" Version="0.3.0" />
     <PackageVersion Include="Tamp.Http" Version="0.1.1" />
-    <PackageVersion Include="Tamp.Telemetry" Version="0.1.0" />
+    <PackageVersion Include="Tamp.Telemetry" Version="0.1.1" />
   </ItemGroup>
 
   <ItemGroup Label="Storage — Postgres (bundled in single image; overridable via BEACON_DB_CONNECTION_STRING)">
