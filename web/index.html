@@ -1,9 +1,22 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>tamp-beacon</title>
+    <!--
+      Dark by default. Inline pre-paint script reads localStorage so the dashboard
+      respects a previously-chosen theme before any React code runs (no FOUC).
+    -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('tamp-beacon-theme');
+          if (saved === 'light') document.documentElement.classList.remove('dark');
+          else if (saved === 'dark') document.documentElement.classList.add('dark');
+        } catch (e) { /* private mode etc — keep dark */ }
+      })();
+    </script>
   </head>
   <body class="bg-background text-foreground">
     <div id="root"></div>

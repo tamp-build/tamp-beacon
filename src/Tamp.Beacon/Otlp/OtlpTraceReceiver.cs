@@ -32,8 +32,20 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
     public const string TargetSource = "Tamp.Build.Targets";
     public const string CommandSource = "Tamp.Build.Commands";
 
+    public Task<TraceIngestResult> IngestAsync(
+        ExportTraceServiceRequest request,
+        CancellationToken ct = default)
+        => IngestAsync(request, verifiedOrganization: null, ct);
+
+    /// <summary>
+    /// Ingest with an optional verified organization (from a GitHub Actions OIDC token). When
+    /// supplied, the <c>tamp.build.organization</c> tag on every Build span is overwritten with
+    /// the verified value — a leaked token cannot submit telemetry for an organization it isn't
+    /// scoped to, regardless of what the env var or span tag says.
+    /// </summary>
     public async Task<TraceIngestResult> IngestAsync(
         ExportTraceServiceRequest request,
+        string? verifiedOrganization,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -63,7 +75,7 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
         {
             foreach (var span in scope.Spans)
             {
-                var build = MaterializeBuild(span);
+                var build = MaterializeBuild(span, verifiedOrganization);
                 db.Builds.Add(build);
                 if (!string.IsNullOrEmpty(span.TraceId))
                     buildSpansByTraceId[span.TraceId] = build;
@@ -154,12 +166,16 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
         // Try to find an existing Build span in the DB that owns this traceId.
         // We use the SpanId of the Build span as the foreign key surrogate via parentSpanId chain;
         // for v0.1.0 we simply create a synthetic Build with attributes lifted from the orphan target.
+        // Orphan path doesn't see the verified-org context, but the parent Build span is what
+        // carries the auth scope; commands/targets without their owning build span are best-effort.
         var bag = TagBag.Flatten(span.Attributes);
+        var projectName = TagBag.GetString(bag, "tamp.build.project.name") ?? "unknown";
         var build = new Build
         {
             Seq = 0, // assigned in SaveChanges path
-            ProjectName = TagBag.GetString(bag, "tamp.build.project.name") ?? "unknown",
+            ProjectName = projectName,
             ProjectArea = TagBag.GetString(bag, "tamp.build.project.area"),
+            Organization = TagBag.GetString(bag, "tamp.build.organization") ?? projectName,
             StartedUnixNs = long.TryParse(span.StartTimeUnixNano, out var st) ? st : 0,
             DurationNs = 0,
             ExitCode = 0,
@@ -185,14 +201,22 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 
-    private static Build MaterializeBuild(Span span)
+    private static Build MaterializeBuild(Span span, string? verifiedOrganization)
     {
         var bag = TagBag.Flatten(span.Attributes);
+        var projectName = TagBag.GetString(bag, "tamp.build.project.name") ?? "unknown";
+        // Verified org wins: when present, the env-var-supplied tag becomes a hint that we
+        // override with the value derived from the OIDC token's repository_owner. When absent
+        // (auth disabled or token-less local runs), fall back to the tag, then to project name.
+        var organization = verifiedOrganization
+            ?? TagBag.GetString(bag, "tamp.build.organization")
+            ?? projectName;
         return new Build
         {
             Seq = 0, // assigned at save time
-            ProjectName = TagBag.GetString(bag, "tamp.build.project.name") ?? "unknown",
+            ProjectName = projectName,
             ProjectArea = TagBag.GetString(bag, "tamp.build.project.area"),
+            Organization = organization,
             CliVersion = TagBag.GetString(bag, "tamp.build.cli_version"),
             StartedUnixNs = long.TryParse(span.StartTimeUnixNano, out var st) ? st : 0,
             DurationNs = TagBag.GetLong(bag, "tamp.build.duration_ns",

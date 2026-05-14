@@ -22,6 +22,7 @@ public static class BuildsEndpoints
 
     private static async Task<IResult> ListBuildsAsync(
         BeaconDbContext db,
+        [FromQuery] string? organization,
         [FromQuery] string? project,
         [FromQuery] string? area,
         [FromQuery(Name = "since_seq")] long? sinceSeq,
@@ -29,6 +30,8 @@ public static class BuildsEndpoints
         CancellationToken ct)
     {
         var query = db.Builds.AsNoTracking().AsQueryable();
+        if (!string.IsNullOrEmpty(organization))
+            query = query.Where(b => b.Organization == organization);
         if (!string.IsNullOrEmpty(project))
             query = query.Where(b => b.ProjectName == project);
         if (!string.IsNullOrEmpty(area))
@@ -45,6 +48,7 @@ public static class BuildsEndpoints
             {
                 Id = b.Id,
                 Seq = b.Seq,
+                Organization = b.Organization,
                 ProjectName = b.ProjectName,
                 ProjectArea = b.ProjectArea,
                 CliVersion = b.CliVersion,
@@ -97,6 +101,7 @@ public static class BuildsEndpoints
             {
                 Id = build.Id,
                 Seq = build.Seq,
+                Organization = build.Organization,
                 ProjectName = build.ProjectName,
                 ProjectArea = build.ProjectArea,
                 CliVersion = build.CliVersion,

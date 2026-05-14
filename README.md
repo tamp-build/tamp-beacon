@@ -19,7 +19,9 @@ docker run -d -p 4318:4318 -v $PWD/beacon-data:/var/lib/tamp-beacon ghcr.io/tamp
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ```
 
-Then point every developer and CI runner's Tamp at `$OTEL_EXPORTER_OTLP_ENDPOINT` (via the forthcoming `Tamp.Otel` satellite) and open `http://localhost:4318` in a browser.
+Then point every developer's Tamp at `$OTEL_EXPORTER_OTLP_ENDPOINT` (via the forthcoming `Tamp.Otel` satellite) and open `http://localhost:4318` in a browser.
+
+> **v0.1.0 scope:** **local-only exercise.** Public GitHub Actions runners can't reach a self-hosted beacon's ingress without a tunnel + auth — that wiring lands in a later wave. Right now, point your local dev runs and any private/self-hosted runners at the beacon; skip the OTel exporter env var on public CI workflows.
 
 ## What ships in v0.1.0
 

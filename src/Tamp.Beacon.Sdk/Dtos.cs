@@ -14,6 +14,7 @@ public sealed record BuildSummary
 {
     [JsonPropertyName("id")] public long Id { get; init; }
     [JsonPropertyName("seq")] public long Seq { get; init; }
+    [JsonPropertyName("organization")] public string Organization { get; init; } = "";
     [JsonPropertyName("project_name")] public string ProjectName { get; init; } = "";
     [JsonPropertyName("project_area")] public string? ProjectArea { get; init; }
     [JsonPropertyName("cli_version")] public string? CliVersion { get; init; }
@@ -88,15 +89,31 @@ public sealed record BuildDetail
 
 public sealed record ProjectFacet
 {
+    [JsonPropertyName("organization")] public string Organization { get; init; } = "";
     [JsonPropertyName("name")] public string Name { get; init; } = "";
     [JsonPropertyName("area")] public string? Area { get; init; }
     [JsonPropertyName("last_seen_unix_ns")] public long LastSeenUnixNs { get; init; }
     [JsonPropertyName("builds_count")] public long BuildsCount { get; init; }
+    [JsonPropertyName("failed_count")] public long FailedCount { get; init; }
 }
 
 public sealed record ProjectList
 {
     [JsonPropertyName("projects")] public IReadOnlyList<ProjectFacet> Projects { get; init; } = Array.Empty<ProjectFacet>();
+}
+
+public sealed record OrganizationFacet
+{
+    [JsonPropertyName("name")] public string Name { get; init; } = "";
+    [JsonPropertyName("projects_count")] public int ProjectsCount { get; init; }
+    [JsonPropertyName("builds_count")] public long BuildsCount { get; init; }
+    [JsonPropertyName("failed_count")] public long FailedCount { get; init; }
+    [JsonPropertyName("last_seen_unix_ns")] public long LastSeenUnixNs { get; init; }
+}
+
+public sealed record OrganizationList
+{
+    [JsonPropertyName("organizations")] public IReadOnlyList<OrganizationFacet> Organizations { get; init; } = Array.Empty<OrganizationFacet>();
 }
 
 public sealed record TargetStat

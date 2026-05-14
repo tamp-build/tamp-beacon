@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Tamp.Beacon;
 using Tamp.Beacon.Api;
+using Tamp.Beacon.Auth;
 using Tamp.Beacon.Otlp;
 using Tamp.Beacon.Push;
 
@@ -36,6 +37,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddOptions<BeaconOptions>()
     .Bind(builder.Configuration.GetSection("Beacon"))
     .ValidateOnStart();
+
+builder.Services.AddBeaconAuth(builder.Configuration);
 
 builder.Services.AddDbContext<BeaconDbContext>((sp, opts) =>
 {
@@ -92,6 +95,8 @@ using (var scope = app.Services.CreateScope())
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
+
+app.UseBeaconAuth();
 
 app.MapHealth();
 app.MapOtlp();

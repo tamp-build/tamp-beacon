@@ -21,6 +21,7 @@
     </PackageReference>
     <PackageReference Include="Dapper" />
     <PackageReference Include="WebPush" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
   </ItemGroup>
 
   <ItemGroup>

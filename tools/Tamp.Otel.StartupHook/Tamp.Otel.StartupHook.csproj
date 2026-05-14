@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace></RootNamespace>           <!-- StartupHook contract requires the type to be in the global namespace -->
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Self-contained-ish: produce a DLL with no external NuGet deps; uses only the BCL. -->
+  </PropertyGroup>
+
+  <PropertyGroup Label="Hook discovery — Microsoft's DOTNET_STARTUP_HOOKS convention">
+    <!--
+      The .NET runtime resolves DOTNET_STARTUP_HOOKS values as either a full DLL path
+      OR an assembly name to be resolved on the runtime's standard probing paths.
+      Loading by full path is simpler in CI/dev — point the env var at the published DLL.
+    -->
+  </PropertyGroup>
+
+</Project>

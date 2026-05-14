@@ -3,6 +3,7 @@
 export interface BuildSummary {
   id: number;
   seq: number;
+  organization: string;
   project_name: string;
   project_area: string | null;
   cli_version: string | null;
@@ -71,14 +72,28 @@ export interface BuildDetail {
 }
 
 export interface ProjectFacet {
+  organization: string;
   name: string;
   area: string | null;
   last_seen_unix_ns: number;
   builds_count: number;
+  failed_count: number;
 }
 
 export interface ProjectList {
   projects: ProjectFacet[];
+}
+
+export interface OrganizationFacet {
+  name: string;
+  projects_count: number;
+  builds_count: number;
+  failed_count: number;
+  last_seen_unix_ns: number;
+}
+
+export interface OrganizationList {
+  organizations: OrganizationFacet[];
 }
 
 export interface TargetStat {
@@ -110,8 +125,9 @@ async function getJson<T>(url: string): Promise<T> {
 }
 
 export const api = {
-  getBuilds: (params: { project?: string; area?: string; sinceSeq?: number; limit?: number } = {}) => {
+  getBuilds: (params: { organization?: string; project?: string; area?: string; sinceSeq?: number; limit?: number } = {}) => {
     const qs = new URLSearchParams();
+    if (params.organization) qs.set('organization', params.organization);
     if (params.project) qs.set('project', params.project);
     if (params.area) qs.set('area', params.area);
     if (params.sinceSeq != null) qs.set('since_seq', String(params.sinceSeq));
@@ -120,6 +136,7 @@ export const api = {
     return getJson<BuildList>(url);
   },
   getBuild: (id: number) => getJson<BuildDetail>(`/api/builds/${id}`),
+  getOrganizations: () => getJson<OrganizationList>('/api/organizations'),
   getProjects: () => getJson<ProjectList>('/api/projects'),
   getSlowestTargets: (params: { project?: string; sinceUnixNs?: number; limit?: number } = {}) => {
     const qs = new URLSearchParams();

@@ -18,6 +18,15 @@ public sealed class Build
 
     public string ProjectName { get; set; } = "unknown";
     public string? ProjectArea { get; set; }
+
+    /// <summary>
+    /// Top-level grouping above project — the unit a tree-view dashboard rolls up.
+    /// Sourced from <c>tamp.build.organization</c> tag (and forthcoming
+    /// <c>[BuildProject(Organization=...)]</c> attribute in Tamp.Core 1.4.1).
+    /// Falls back to <see cref="ProjectName"/> when unset so single-product setups
+    /// just show a single org node with that project under it.
+    /// </summary>
+    public string Organization { get; set; } = "unknown";
     public string? CliVersion { get; set; }
     public long StartedUnixNs { get; set; }
     public long DurationNs { get; set; }

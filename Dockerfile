@@ -7,7 +7,7 @@
 # The host binary is self-contained, so the chiseled runtime-deps image is
 # sufficient — no ASP.NET Core sharing needed.
 
-FROM mcr.microsoft.com/dotnet/runtime-deps:10.0-jammy-chiseled AS base
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0-noble-chiseled AS base
 WORKDIR /app
 EXPOSE 4318
 ENV ASPNETCORE_URLS=http://+:4318
