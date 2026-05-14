@@ -53,6 +53,18 @@ public sealed class User
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? LastLoginAt { get; set; }
 
+    /// <summary>
+    /// SHA-256 of an outstanding password-reset token. Set by the
+    /// <c>admin recover</c> CLI when an operator runs
+    /// <c>kubectl exec ... tamp-beacon admin recover --username NAME</c>;
+    /// cleared by a successful <c>POST /admin/recover</c>. Null when no
+    /// recovery is in flight.
+    /// </summary>
+    public string? PendingResetHash { get; set; }
+
+    /// <summary>UTC mint time of the outstanding reset token. Null when none.</summary>
+    public DateTimeOffset? PendingResetIssuedAt { get; set; }
+
     public ICollection<ProjectMember> ProjectMemberships { get; set; } = new List<ProjectMember>();
     public ICollection<IdentityProviderLink> IdentityProviderLinks { get; set; } = new List<IdentityProviderLink>();
 }

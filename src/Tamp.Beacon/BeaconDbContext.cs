@@ -181,6 +181,8 @@ public sealed class BeaconDbContext(DbContextOptions<BeaconDbContext> options) :
             b.Property(x => x.IsDisabled).HasColumnName("is_disabled");
             b.Property(x => x.CreatedAt).HasColumnName("created_at");
             b.Property(x => x.LastLoginAt).HasColumnName("last_login_at");
+            b.Property(x => x.PendingResetHash).HasColumnName("pending_reset_hash");
+            b.Property(x => x.PendingResetIssuedAt).HasColumnName("pending_reset_issued_at");
 
             b.HasIndex(x => x.Username).IsUnique().HasDatabaseName("ix_users_username");
         });

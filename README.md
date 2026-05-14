@@ -11,9 +11,9 @@ Tamp builds emit a pinned diagnostics contract (ADR 0018) — three `ActivitySou
 | Volume | `/var/lib/tamp-beacon` (Postgres datadir + setup token + VAPID key) |
 | Status | preview — slice-1 in progress, see "Build slices" below |
 
-## Slice-1 status (you are here)
+## Slice-2 status (you are here)
 
-This branch ships **scaffold + bootstrap + health**: the .NET 10 host, the Postgres-backed schema (auth + telemetry tables), the first-run setup-token bootstrap, and the Kubernetes-style health probes. OTLP receivers, dashboards, and Web Push come online in later slices.
+This branch ships **slice 1 (scaffold + bootstrap + health) + slice 2 (cookie auth + GitHub OAuth + admin recovery)**. The auth surface is feature-complete from line one: local admin break-glass login over an argon2id-hashed password, GitHub OAuth sign-in with login + org allowlist, sliding-window cookie sessions backed by data-protection keys persisted to the PVC, and a `kubectl exec`-driven password-recovery CLI that mints a one-shot reset token. OTLP receivers, dashboards, and Web Push come online in later slices.
 
 ### Running slice 1 locally
 
@@ -41,21 +41,41 @@ curl -sS -X POST http://localhost:8080/setup \
   -d '{"token":"<token>","username":"admin","password":"correct-horse-battery-staple"}'
 ```
 
-### Slice-1 endpoints
+### Endpoint surface (slices 1 + 2)
 
 ```
-GET  /healthz         → 200 { status: "ok" }
-GET  /readyz          → 200 { status: "ready", setup_complete, awaiting_setup }
-GET  /setup/status    → 200 { awaiting_setup, is_complete, token_issued_at }
-POST /setup           → 200 { username, display_name, created_at } | 400 | 401 | 409
+GET  /healthz                → 200 { status: "ok" }
+GET  /readyz                 → 200 { status: "ready", setup_complete, awaiting_setup }
+GET  /setup/status           → 200 { awaiting_setup, is_complete, token_issued_at }
+POST /setup                  → 200 { username, display_name, created_at } | 400 | 401 | 409
+
+POST /break-glass            → 200 + Set-Cookie | 400 | 401 | 429
+POST /logout                 → 200
+GET  /me                     → 200 { username, display_name, is_system_admin, last_login_at } | 401
+GET  /signin/github          → 302 → GitHub | 404 (when OAuth not configured)
+GET  /signin/github/callback → 302 home + Set-Cookie | 403 (not in allowlist)
+POST /admin/recover          → 200 | 400 | 401
+```
+
+### Admin password recovery
+
+```bash
+# Inside the running pod (kubectl exec):
+tamp-beacon admin recover --username scott
+# Prints a one-shot reset token to stdout. TTL = 1h (configurable).
+
+# Operator consumes via:
+curl -X POST https://beacon.example.com/admin/recover \
+  -H 'content-type: application/json' \
+  -d '{"username":"scott","token":"<token>","new_password":"<new>"}'
 ```
 
 ## Build slices
 
 | Slice | Scope | Status |
 |---|---|---|
-| 1 | scaffold + bootstrap + health | in progress |
-| 2 | GitHub OIDC login + admin break-glass cookie session + admin recovery via stdout | pending |
+| 1 | scaffold + bootstrap + health | shipped |
+| 2 | GitHub OAuth login + cookie session + admin break-glass + admin recovery CLI | shipped |
 | 3 | Project CRUD + RBAC (admin/viewer) + per-project ingest tokens | pending |
 | 4 | OTLP/HTTP `/v1/traces` + `/v1/metrics` ingest gated by project tokens | pending |
 | 5 | SPA dashboard (builds list, drill-down, slow/flaky targets) | pending |
@@ -68,9 +88,9 @@ Auth is enabled from line one — there is no "authless mode."
 
 - **System Admin** — created during first-run setup via the stdout-printed token. Sees all projects.
 - **Project Admin / Viewer** — SonarQube-style two-tier RBAC, per-project. Project Admins mint and rotate ingest tokens.
-- **Federated identity** — GitHub OIDC for humans (slice 2). Admin break-glass via local username/password covers the "lost OIDC" failure mode.
+- **Federated identity** — GitHub OAuth for humans. Login + org allowlist enforced server-side; users not on the list get 403 from the callback. Admin break-glass via local username/password covers the "lost OAuth provider" failure mode.
 - **Setup-token bootstrap** — printed to stdout at first boot; consumed by `POST /setup`. Restart the pod to mint a fresh token if the operator loses the original copy. Trust boundary = pod-log readership.
-- **Admin recovery** — `tamp-beacon admin recover --username <name>` prints a one-shot password-reset token to stdout (slice 2). Same trust model as setup-token.
+- **Admin recovery** — `tamp-beacon admin recover --username <name>` prints a one-shot password-reset token to stdout. Same trust model as setup-token (pod-log readership).
 
 See the TAM-214 spec in the Tamp YouTrack for the complete threat model.
 

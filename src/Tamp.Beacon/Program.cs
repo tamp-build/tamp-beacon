@@ -30,11 +30,16 @@ if (args is ["--healthcheck"])
     }
 }
 
+// `tamp-beacon admin recover --username NAME` — mint a one-shot password-
+// reset token and print it to stdout. Invoked from inside the running pod
+// via `kubectl exec`. Trust boundary = pod-log readership.
+if (args.Length >= 2 && args[0] == "admin" && args[1] == "recover")
+{
+    return await AdminRecoverCli.RunAsync(args[2..]).ConfigureAwait(false);
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
-// BEACON_DB_CONNECTION_STRING is the explicit override knob for adopters who
-// run against an external Postgres. Falls back to the bundled-Postgres Unix
-// socket configured in BeaconOptions / appsettings.
 var envOverride = Environment.GetEnvironmentVariable("BEACON_DB_CONNECTION_STRING");
 if (!string.IsNullOrWhiteSpace(envOverride))
 {
@@ -50,6 +55,13 @@ builder.Services.AddDbContext<BeaconDbContext>((sp, opts) =>
 {
     var beacon = sp.GetRequiredService<IOptions<BeaconOptions>>().Value;
     opts.UseNpgsql(beacon.ConnectionString, npg => npg.MigrationsHistoryTable("__ef_migrations_history"));
+    // EF 10's PendingModelChangesWarning fires false-positives when the
+    // model + last-migration snapshot agree but the design-time / runtime
+    // hash differ (jsonb columns + dual-purpose nav properties seem to
+    // trigger it). The CLI's `has-pending-model-changes` is authoritative
+    // — suppress the runtime warning so Migrate() doesn't throw on boot.
+    opts.ConfigureWarnings(w => w.Ignore(
+        Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
 });
 
 builder.Services.AddBeaconAuth(builder.Configuration);
@@ -61,9 +73,6 @@ builder.Services.Configure<JsonOptions>(o =>
 
 var app = builder.Build();
 
-// Apply pending migrations on boot. EnsureCreated is deliberately avoided —
-// the v0.1.0 schema is large enough that we want migration history from day
-// one so future ALTERs are tractable.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<BeaconDbContext>();
@@ -76,14 +85,16 @@ using (var scope = app.Services.CreateScope())
     catch (Exception ex)
     {
         log.LogCritical(ex, "could not apply postgres migrations — /readyz will report 503 until this is resolved");
-        // Do not throw: the process must stay up so /healthz answers and
-        // the operator can inspect logs. /readyz already trips to 503 on
-        // failed DB access.
     }
 }
 
+app.UseRateLimiter();
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.MapHealth();
 app.MapSetup();
+app.MapAuth();
 
 app.Run();
 return 0;
