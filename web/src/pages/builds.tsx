@@ -1,113 +1,104 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router-dom';
-import { api } from '@/lib/api';
+import { api, type BuildSummary } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { formatDurationNs, formatUnixNs } from '@/lib/utils';
+
+function formatNs(ns: number): string {
+  const ms = ns / 1_000_000;
+  if (ms < 1000) return `${ms.toFixed(0)} ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)} s`;
+  return `${(s / 60).toFixed(1)} m`;
+}
+
+function formatUnix(ns: number): string {
+  return new Date(ns / 1_000_000).toLocaleString();
+}
 
 export default function BuildsPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [organization, setOrganization] = useState(searchParams.get('organization') ?? '');
-  const [project, setProject] = useState(searchParams.get('project') ?? '');
-  const [area, setArea] = useState(searchParams.get('area') ?? '');
-
-  useEffect(() => {
-    const next = new URLSearchParams();
-    if (organization) next.set('organization', organization);
-    if (project) next.set('project', project);
-    if (area) next.set('area', area);
-    setSearchParams(next, { replace: true });
-  }, [organization, project, area, setSearchParams]);
-
-  const builds = useQuery({
-    queryKey: ['builds', organization, project, area],
+  const [outcome, setOutcome] = useState<'all' | 'success' | 'failure'>('all');
+  const { data, isLoading } = useQuery({
+    queryKey: ['allBuilds', outcome],
     queryFn: () =>
-      api.getBuilds({
-        organization: organization || undefined,
-        project: project || undefined,
-        area: area || undefined,
+      api.listBuilds({
+        outcome: outcome === 'all' ? undefined : outcome,
         limit: 100,
       }),
+    refetchInterval: 5_000,
   });
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Builds</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          <Input
-            placeholder="Filter by organization (e.g. Tamp)"
-            value={organization}
-            onChange={(e) => setOrganization(e.target.value)}
-            className="max-w-xs"
-          />
-          <Input
-            placeholder="Filter by project (e.g. HoldFast)"
-            value={project}
-            onChange={(e) => setProject(e.target.value)}
-            className="max-w-xs"
-          />
-          <Input
-            placeholder="Filter by area (e.g. frontend)"
-            value={area}
-            onChange={(e) => setArea(e.target.value)}
-            className="max-w-xs"
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="p-0">
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          <span>Builds</span>
+          <select
+            className="h-9 rounded-md border bg-background px-3 text-sm"
+            value={outcome}
+            onChange={(e) => setOutcome(e.target.value as typeof outcome)}
+          >
+            <option value="all">all outcomes</option>
+            <option value="success">success</option>
+            <option value="failure">failure</option>
+          </select>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading && <p className="text-muted-foreground">Loading…</p>}
+        {data && data.builds.length === 0 && (
+          <p className="text-muted-foreground">No builds visible to you yet.</p>
+        )}
+        {data && data.builds.length > 0 && (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Outcome</TableHead>
-                <TableHead>Organization</TableHead>
+                <TableHead className="w-20">Seq</TableHead>
                 <TableHead>Project</TableHead>
-                <TableHead>Area</TableHead>
                 <TableHead>Started</TableHead>
                 <TableHead>Duration</TableHead>
+                <TableHead>Outcome</TableHead>
                 <TableHead>Targets</TableHead>
-                <TableHead>Commands</TableHead>
                 <TableHead>CI</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {builds.data?.builds.map((b) => (
-                <TableRow key={b.id} className="cursor-pointer">
+              {[...data.builds].reverse().map((b: BuildSummary) => (
+                <TableRow key={b.id} className="cursor-pointer hover:bg-muted/30">
+                  <TableCell className="font-mono">
+                    <Link to={`/builds/${b.id}`}>{b.seq}</Link>
+                  </TableCell>
                   <TableCell>
-                    <Link to={`/builds/${b.id}`}>
-                      <Badge variant={b.outcome === 'success' ? 'success' : 'destructive'}>{b.outcome}</Badge>
+                    <Link to={`/projects/${b.project_slug}`} className="font-mono text-sm">
+                      {b.project_slug}
                     </Link>
                   </TableCell>
-                  <TableCell>{b.organization}</TableCell>
-                  <TableCell><Link to={`/builds/${b.id}`}>{b.project_name}</Link></TableCell>
-                  <TableCell>{b.project_area ?? '—'}</TableCell>
-                  <TableCell className="font-mono text-xs">{formatUnixNs(b.started_unix_ns)}</TableCell>
-                  <TableCell>{formatDurationNs(b.duration_ns)}</TableCell>
+                  <TableCell>{formatUnix(b.started_unix_ns)}</TableCell>
+                  <TableCell>{formatNs(b.duration_ns)}</TableCell>
                   <TableCell>
-                    {b.targets_total} ({b.targets_failed} failed)
+                    <Badge variant={b.outcome === 'success' ? 'default' : 'destructive'}>
+                      {b.outcome}
+                    </Badge>
                   </TableCell>
-                  <TableCell>{b.commands_total}</TableCell>
-                  <TableCell>{b.ci_vendor ?? 'local'}</TableCell>
+                  <TableCell>
+                    {b.targets_total - b.targets_failed}/{b.targets_total}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{b.ci_vendor ?? '—'}</TableCell>
                 </TableRow>
               ))}
-              {builds.data?.builds.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={9} className="text-center text-muted-foreground py-12">
-                    No builds yet. Point a Tamp build at OTEL_EXPORTER_OTLP_ENDPOINT and run something.
-                  </TableCell>
-                </TableRow>
-              )}
             </TableBody>
           </Table>
-        </CardContent>
-      </Card>
-    </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

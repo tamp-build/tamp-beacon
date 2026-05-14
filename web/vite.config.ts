@@ -2,8 +2,11 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
-// During dev, the SPA runs on :5173 and proxies API + OTLP calls to the .NET host on :4318.
-// On `yarn build`, the dist/ folder is consumed by Build.cs and copied into wwwroot/.
+// During dev the SPA runs on :5173 and proxies anything that hits the
+// ASP.NET Core backend on :8080. The build step emits to dist/, which
+// Build.cs copies into src/Tamp.Beacon/wwwroot/ for the production bundle.
+const BACKEND = 'http://localhost:8080';
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -19,9 +22,15 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:4318',
-      '/v1': 'http://localhost:4318',
-      '/healthz': 'http://localhost:4318',
+      '/api': BACKEND,
+      '/v1': BACKEND,
+      '/healthz': BACKEND,
+      '/readyz': BACKEND,
+      '/setup': BACKEND,
+      '/break-glass': BACKEND,
+      '/logout': BACKEND,
+      '/me': BACKEND,
+      '/signin': BACKEND,
     },
   },
 });

@@ -89,6 +89,14 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseRateLimiter();
+
+// Static SPA shell — wwwroot/ is populated by `yarn build` (slice 5b).
+// UseDefaultFiles rewrites `/` to `/index.html`; UseStaticFiles serves the
+// hashed asset bundle. Auth runs BETWEEN static files and endpoints so the
+// SPA shell itself is publicly fetchable (its API calls are still gated).
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -102,6 +110,10 @@ app.MapAdminUsers();
 app.MapBuilds();
 app.MapTargets();
 app.MapOtlp();
+
+// SPA fallback — any non-matched GET serves index.html so client-side
+// routes (/projects, /builds/123, …) resolve.
+app.MapFallbackToFile("index.html");
 
 app.Run();
 return 0;

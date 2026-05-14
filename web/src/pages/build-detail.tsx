@@ -1,129 +1,166 @@
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { formatBytes, formatDurationNs, formatUnixNs } from '@/lib/utils';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+
+function formatNs(ns: number): string {
+  const ms = ns / 1_000_000;
+  if (ms < 1000) return `${ms.toFixed(0)} ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)} s`;
+  return `${(s / 60).toFixed(1)} m`;
+}
+
+function formatUnix(ns: number): string {
+  return new Date(ns / 1_000_000).toLocaleString();
+}
 
 export default function BuildDetailPage() {
-  const { id } = useParams<{ id: string }>();
-  const detail = useQuery({
-    queryKey: ['build', id],
-    queryFn: () => api.getBuild(Number(id)),
-    enabled: !!id,
+  const { id = '' } = useParams<{ id: string }>();
+  const buildId = Number.parseInt(id, 10);
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['build', buildId],
+    queryFn: () => api.getBuild(buildId),
+    enabled: Number.isFinite(buildId) && buildId > 0,
   });
 
-  if (detail.isLoading) return <p className="text-muted-foreground">Loading…</p>;
-  if (!detail.data) return <p className="text-muted-foreground">Build not found.</p>;
-  const b = detail.data.build;
+  if (isLoading) return <p className="text-muted-foreground">Loading…</p>;
+  if (error || !data)
+    return <p className="text-destructive">Build not found or you don't have access.</p>;
+
+  const { build, targets, commands, events } = data;
+  const commandsByTarget = new Map<number, typeof commands>();
+  for (const c of commands) {
+    const arr = commandsByTarget.get(c.target_id) ?? [];
+    arr.push(c);
+    commandsByTarget.set(c.target_id, arr);
+  }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      <div>
+        <Link to="/builds" className="text-sm text-muted-foreground hover:text-foreground">
+          ← Builds
+        </Link>
+        <h1 className="text-2xl font-semibold mt-1">
+          Build #{build.seq}
+          <Badge className="ml-3" variant={build.outcome === 'success' ? 'default' : 'destructive'}>
+            {build.outcome}
+          </Badge>
+        </h1>
+        <div className="text-sm text-muted-foreground mt-1 space-x-2">
+          <Link to={`/projects/${build.project_slug}`} className="font-mono hover:text-foreground">
+            {build.project_slug}
+          </Link>
+          {build.project_area && <span>· {build.project_area}</span>}
+          <span>· {formatUnix(build.started_unix_ns)}</span>
+          <span>· {formatNs(build.duration_ns)}</span>
+        </div>
+      </div>
+
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-3">
-            <Badge variant={b.outcome === 'success' ? 'success' : 'destructive'}>{b.outcome}</Badge>
-            <span>{b.project_name}</span>
-            {b.project_area && <span className="text-muted-foreground font-normal text-base">/ {b.project_area}</span>}
-          </CardTitle>
+          <CardTitle>Summary</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <Stat label="Exit code" value={build.exit_code} />
+          <Stat label="Targets total" value={build.targets_total} />
+          <Stat label="Targets failed" value={build.targets_failed} />
+          <Stat label="Commands total" value={build.commands_total} />
+          <Stat label="CLI version" value={build.cli_version ?? '—'} />
+          <Stat label="Host" value={`${build.host_os ?? '?'}/${build.host_arch ?? '?'}`} />
+          <Stat label="CI vendor" value={build.ci_vendor ?? '—'} />
+          <Stat
+            label="Peak memory"
+            value={
+              build.peak_memory_b > 0
+                ? `${(build.peak_memory_b / 1024 / 1024).toFixed(1)} MB`
+                : '—'
+            }
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Targets ({targets.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-2 text-sm">
-            <Field label="Started" value={formatUnixNs(b.started_unix_ns)} />
-            <Field label="Duration" value={formatDurationNs(b.duration_ns)} />
-            <Field label="Exit code" value={String(b.exit_code)} />
-            <Field label="Peak memory" value={formatBytes(b.peak_memory_b)} />
-            <Field label="Targets" value={`${b.targets_total} (${b.targets_failed} failed)`} />
-            <Field label="Commands" value={String(b.commands_total)} />
-            <Field label="Host" value={`${b.host_os ?? '—'} ${b.host_arch ?? ''}`} />
-            <Field label="CI" value={b.ci_vendor ?? 'local'} />
-          </dl>
+          {targets.length === 0 ? (
+            <p className="text-muted-foreground">No target spans landed for this build.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Phase</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Duration</TableHead>
+                  <TableHead>Commands</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {targets.map((t) => (
+                  <TableRow key={t.id}>
+                    <TableCell className="font-mono">{t.name}</TableCell>
+                    <TableCell className="text-muted-foreground">{t.phase ?? '—'}</TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={
+                          t.status === 'success' || t.status === 'skipped'
+                            ? 'default'
+                            : 'destructive'
+                        }
+                      >
+                        {t.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{formatNs(t.duration_ns)}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {(commandsByTarget.get(t.id) ?? []).length}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Targets</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Status</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Phase</TableHead>
-                <TableHead>Duration</TableHead>
-                <TableHead>CPU (ms)</TableHead>
-                <TableHead>Allocated</TableHead>
-                <TableHead>GC (0/1/2)</TableHead>
-                <TableHead>Commands</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {detail.data.targets.map((t) => (
-                <TableRow key={t.id}>
-                  <TableCell>
-                    <Badge variant={t.status === 'success' ? 'success' : t.status === 'failure' ? 'destructive' : 'secondary'}>
-                      {t.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="font-medium">{t.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{t.phase ?? '—'}</TableCell>
-                  <TableCell>{formatDurationNs(t.duration_ns)}</TableCell>
-                  <TableCell>{t.cpu_time_ms.toFixed(1)}</TableCell>
-                  <TableCell>{formatBytes(t.gc_allocated_b)}</TableCell>
-                  <TableCell>{t.gc_gen0}/{t.gc_gen1}/{t.gc_gen2}</TableCell>
-                  <TableCell>{t.commands_count}</TableCell>
-                </TableRow>
+      {events.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Events ({events.length})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-1 font-mono text-sm">
+              {events.map((e) => (
+                <li key={e.id} className="text-muted-foreground">
+                  <span>{formatUnix(e.at_unix_ns)}</span> <span className="text-foreground">{e.name}</span>
+                </li>
               ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Commands</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Executable</TableHead>
-                <TableHead>Args</TableHead>
-                <TableHead>Exit</TableHead>
-                <TableHead>Duration</TableHead>
-                <TableHead>Peak mem</TableHead>
-                <TableHead>stdout</TableHead>
-                <TableHead>stderr</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {detail.data.commands.map((c) => (
-                <TableRow key={c.id}>
-                  <TableCell className="font-mono">{c.executable}</TableCell>
-                  <TableCell>{c.args_count}</TableCell>
-                  <TableCell>{c.exit_code}</TableCell>
-                  <TableCell>{formatDurationNs(c.duration_ns)}</TableCell>
-                  <TableCell>{formatBytes(c.peak_memory_b)}</TableCell>
-                  <TableCell>{formatBytes(c.stdout_bytes)}</TableCell>
-                  <TableCell>{formatBytes(c.stderr_bytes)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+            </ul>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+function Stat({ label, value }: { label: string; value: string | number }) {
   return (
-    <>
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="font-medium">{value}</dd>
-    </>
+    <div>
+      <div className="text-xs text-muted-foreground uppercase tracking-wide">{label}</div>
+      <div className="text-sm font-medium mt-0.5">{value}</div>
+    </div>
   );
 }

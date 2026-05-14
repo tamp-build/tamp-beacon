@@ -11,11 +11,11 @@ Tamp builds emit a pinned diagnostics contract (ADR 0018) — three `ActivitySou
 | Volume | `/var/lib/tamp-beacon` (Postgres datadir + setup token + VAPID key) |
 | Status | preview — slice-1 in progress, see "Build slices" below |
 
-## Slice-5a status (you are here)
+## Slice-5b status (you are here)
 
-This branch ships **slices 1–5a**. The receive path (slice 4) is now paired with a queryable read surface: `GET /api/builds` for cross-project listings with RBAC filtering + `since_seq` delta polling, `GET /api/builds/{id}` for full drill-down, per-project listings, and `slowest` / `flakiest` rollups. The SPA dashboard layer follows in slice 5b.
+This branch ships **slices 1–5b**. The full v0.1.0 user experience is in place: the React + Vite + Tailwind + shadcn SPA wires login, projects, members, ingest-token mint, cross-project builds list, per-project builds, and build-detail drill-down. Polling-based delta updates against `since_seq` keep the dashboard live; no SSE/WebSocket. The beacon serves the bundled SPA from `wwwroot/` with `MapFallbackToFile` covering client-side routes.
 
-### Running slice 1 locally
+### Running locally
 
 ```bash
 # 1. Bring up Postgres
@@ -23,11 +23,15 @@ docker run -d --name beacon-pg -p 5432:5432 \
   -e POSTGRES_USER=beacon -e POSTGRES_PASSWORD=beacon -e POSTGRES_DB=beacon \
   postgres:17-alpine
 
-# 2. Build + run the beacon
+# 2. Build the SPA into wwwroot
+(cd web && yarn install && yarn build)
+rm -rf src/Tamp.Beacon/wwwroot && cp -r web/dist src/Tamp.Beacon/wwwroot
+
+# 3. Run the beacon (binds :8080, SPA shell at /, API at /api/* and /v1/*)
 BEACON_DB_CONNECTION_STRING="Host=localhost;Username=beacon;Password=beacon;Database=beacon" \
   dotnet run --project src/Tamp.Beacon
 
-# 3. Watch stdout for the first-run setup token banner:
+# 4. Watch stdout for the first-run setup token banner:
 #
 #    ================================================================
 #     tamp-beacon — first-run setup token
@@ -35,10 +39,19 @@ BEACON_DB_CONNECTION_STRING="Host=localhost;Username=beacon;Password=beacon;Data
 #     token:    <token>
 #    ================================================================
 #
-# 4. Consume the token to mint the first admin
+# 5. Consume the token to mint the first admin
 curl -sS -X POST http://localhost:8080/setup \
   -H 'content-type: application/json' \
   -d '{"token":"<token>","username":"admin","password":"correct-horse-battery-staple"}'
+
+# 6. Open http://localhost:8080 — sign in with admin / your password
+```
+
+### Frontend inner loop
+
+```bash
+# Dev with hot reload — vite proxies /api/* and /v1/* to the backend on :8080
+(cd web && yarn dev)   # SPA on :5173, proxies API to :8080
 ```
 
 ### Endpoint surface (slices 1 + 2)
@@ -130,7 +143,7 @@ curl -X POST https://beacon.example.com/admin/recover \
 | 3 | Project CRUD + RBAC (admin/viewer) + per-project ingest tokens + sysadmin promotion | shipped |
 | 4 | OTLP/HTTP protobuf+JSON ingest gated by project tokens + Build→Project FK | shipped |
 | 5a | Read API surface (builds list/detail + slowest/flakiest rollups) | shipped |
-| 5b | SPA dashboard wired against the slice-5a API | pending |
+| 5b | SPA dashboard wired against the slice-5a API | shipped |
 | 6 | Web Push failure alerts (VAPID, project-scoped) | pending |
 | 7 | Docs + on-ramp polish + 1.0 cut | pending |
 

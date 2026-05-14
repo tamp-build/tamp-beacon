@@ -1,8 +1,12 @@
-// Typed client over the tamp-beacon HTTP/JSON API. Mirrors the C# Tamp.Beacon.Sdk.BeaconClient.
+// Typed client over the tamp-beacon HTTP/JSON API. Mirrors the slice 5a
+// surface (RBAC-filtered build listings, per-project rollups, project +
+// member + token management). Cookie-based auth — every fetch implicitly
+// carries the BeaconCookie session via `credentials: 'include'`.
 
 export interface BuildSummary {
   id: number;
   seq: number;
+  project_slug: string;
   organization: string;
   project_name: string;
   project_area: string | null;
@@ -71,34 +75,46 @@ export interface BuildDetail {
   events: EventSummary[];
 }
 
-export interface ProjectFacet {
-  organization: string;
+export interface ProjectSummary {
+  slug: string;
   name: string;
-  area: string | null;
-  last_seen_unix_ns: number;
-  builds_count: number;
-  failed_count: number;
+  description: string | null;
+  created_at: string;
+  archived_at: string | null;
+  member_count: number;
+  my_role: 'admin' | 'viewer';
 }
 
-export interface ProjectList {
-  projects: ProjectFacet[];
+export interface ProjectMember {
+  id: number;
+  username: string;
+  display_name: string;
+  role: 'admin' | 'viewer';
+  added_at: string;
 }
 
-export interface OrganizationFacet {
-  name: string;
-  projects_count: number;
-  builds_count: number;
-  failed_count: number;
-  last_seen_unix_ns: number;
+export interface TokenSummary {
+  id: number;
+  label: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  created_by_username: string;
 }
 
-export interface OrganizationList {
-  organizations: OrganizationFacet[];
+export interface MintedToken extends TokenSummary {
+  token: string;
+}
+
+export interface Session {
+  username: string;
+  display_name: string;
+  is_system_admin: boolean;
+  last_login_at: string | null;
 }
 
 export interface TargetStat {
   name: string;
-  project_name: string;
   avg_duration_ns: number;
   p95_duration_ns: number;
   samples: number;
@@ -106,64 +122,127 @@ export interface TargetStat {
 
 export interface FlakyTarget {
   name: string;
-  project_name: string;
   fail_rate: number;
   samples: number;
 }
 
-export interface HealthStatus {
-  status: string;
-  db_path: string;
-  rows_total: number;
-  vapid_public_key: string;
+export class ApiError extends Error {
+  constructor(public status: number, public body: unknown, message: string) {
+    super(message);
+  }
 }
 
-async function getJson<T>(url: string): Promise<T> {
-  const resp = await fetch(url, { headers: { accept: 'application/json' } });
-  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText} fetching ${url}`);
+async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
+  const resp = await fetch(url, {
+    credentials: 'include',
+    headers: { accept: 'application/json', ...(init.headers ?? {}) },
+    ...init,
+  });
+  if (!resp.ok) {
+    let body: unknown = null;
+    try {
+      body = await resp.json();
+    } catch {
+      // Non-JSON body; leave null.
+    }
+    throw new ApiError(resp.status, body, `${resp.status} ${resp.statusText} fetching ${url}`);
+  }
+  if (resp.status === 204) return undefined as unknown as T;
   return (await resp.json()) as T;
 }
 
+function postJson<T>(url: string, body: unknown): Promise<T> {
+  return request<T>(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+function patchJson<T>(url: string, body: unknown): Promise<T> {
+  return request<T>(url, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+function del<T>(url: string): Promise<T> {
+  return request<T>(url, { method: 'DELETE' });
+}
+
 export const api = {
-  getBuilds: (params: { organization?: string; project?: string; area?: string; sinceSeq?: number; limit?: number } = {}) => {
+  // ─── session ───────────────────────────────────────────────────────
+  me: () => request<Session>('/me'),
+  breakGlass: (body: { username: string; password: string }) =>
+    postJson<Session>('/break-glass', body),
+  logout: () => postJson<{ status: string }>('/logout', {}),
+
+  // ─── projects ──────────────────────────────────────────────────────
+  listProjects: () => request<{ projects: ProjectSummary[] }>('/api/projects'),
+  getProject: (slug: string) => request<ProjectSummary>(`/api/projects/${slug}`),
+  createProject: (body: { slug: string; name: string; description?: string | null }) =>
+    postJson<ProjectSummary>('/api/projects', body),
+  updateProject: (slug: string, body: { name?: string; description?: string | null }) =>
+    patchJson<ProjectSummary>(`/api/projects/${slug}`, body),
+  archiveProject: (slug: string) => del<void>(`/api/projects/${slug}`),
+
+  // ─── members ───────────────────────────────────────────────────────
+  listMembers: (slug: string) =>
+    request<{ members: ProjectMember[] }>(`/api/projects/${slug}/members`),
+  addMember: (slug: string, body: { username: string; role: 'admin' | 'viewer' }) =>
+    postJson<ProjectMember>(`/api/projects/${slug}/members`, body),
+  changeMemberRole: (slug: string, id: number, role: 'admin' | 'viewer') =>
+    patchJson<ProjectMember>(`/api/projects/${slug}/members/${id}`, { role }),
+  removeMember: (slug: string, id: number) =>
+    del<void>(`/api/projects/${slug}/members/${id}`),
+
+  // ─── ingest tokens ─────────────────────────────────────────────────
+  listTokens: (slug: string) =>
+    request<{ tokens: TokenSummary[] }>(`/api/projects/${slug}/tokens`),
+  mintToken: (slug: string, label: string) =>
+    postJson<MintedToken>(`/api/projects/${slug}/tokens`, { label }),
+  revokeToken: (slug: string, id: number) =>
+    del<void>(`/api/projects/${slug}/tokens/${id}`),
+
+  // ─── builds ────────────────────────────────────────────────────────
+  listBuilds: (params: {
+    project?: string;
+    outcome?: 'success' | 'failure';
+    sinceSeq?: number;
+    limit?: number;
+  } = {}) => {
     const qs = new URLSearchParams();
-    if (params.organization) qs.set('organization', params.organization);
     if (params.project) qs.set('project', params.project);
-    if (params.area) qs.set('area', params.area);
+    if (params.outcome) qs.set('outcome', params.outcome);
     if (params.sinceSeq != null) qs.set('since_seq', String(params.sinceSeq));
     if (params.limit != null) qs.set('limit', String(params.limit));
     const url = `/api/builds${qs.toString() ? `?${qs.toString()}` : ''}`;
-    return getJson<BuildList>(url);
+    return request<BuildList>(url);
   },
-  getBuild: (id: number) => getJson<BuildDetail>(`/api/builds/${id}`),
-  getOrganizations: () => getJson<OrganizationList>('/api/organizations'),
-  getProjects: () => getJson<ProjectList>('/api/projects'),
-  getSlowestTargets: (params: { project?: string; sinceUnixNs?: number; limit?: number } = {}) => {
+  listProjectBuilds: (slug: string, params: { sinceSeq?: number; limit?: number } = {}) => {
     const qs = new URLSearchParams();
-    if (params.project) qs.set('project', params.project);
-    if (params.sinceUnixNs != null) qs.set('since_unix_ns', String(params.sinceUnixNs));
+    if (params.sinceSeq != null) qs.set('since_seq', String(params.sinceSeq));
     if (params.limit != null) qs.set('limit', String(params.limit));
-    return getJson<{ targets: TargetStat[] }>(`/api/targets/slowest${qs.toString() ? `?${qs.toString()}` : ''}`);
+    const url = `/api/projects/${slug}/builds${qs.toString() ? `?${qs.toString()}` : ''}`;
+    return request<BuildList>(url);
   },
-  getFlakyTargets: (params: { project?: string; sinceUnixNs?: number; limit?: number } = {}) => {
+  getBuild: (id: number) => request<BuildDetail>(`/api/builds/${id}`),
+
+  // ─── target rollups ────────────────────────────────────────────────
+  slowestTargets: (slug: string, params: { limit?: number; sinceUnixNs?: number } = {}) => {
     const qs = new URLSearchParams();
-    if (params.project) qs.set('project', params.project);
-    if (params.sinceUnixNs != null) qs.set('since_unix_ns', String(params.sinceUnixNs));
     if (params.limit != null) qs.set('limit', String(params.limit));
-    return getJson<{ targets: FlakyTarget[] }>(`/api/targets/flakiest${qs.toString() ? `?${qs.toString()}` : ''}`);
+    if (params.sinceUnixNs != null) qs.set('since_unix_ns', String(params.sinceUnixNs));
+    const url = `/api/projects/${slug}/targets/slowest${qs.toString() ? `?${qs.toString()}` : ''}`;
+    return request<{ targets: TargetStat[] }>(url);
   },
-  getHealth: () => getJson<HealthStatus>('/healthz'),
-  subscribePush: async (body: {
-    endpoint: string;
-    keys: { p256dh: string; auth: string };
-    project_filter?: string;
-    area_filter?: string;
-  }) => {
-    const resp = await fetch('/api/push/subscribe', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!resp.ok) throw new Error(`push subscribe failed: ${resp.status}`);
+  flakiestTargets: (slug: string, params: { limit?: number; samplesMin?: number; sinceUnixNs?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    if (params.samplesMin != null) qs.set('samples_min', String(params.samplesMin));
+    if (params.sinceUnixNs != null) qs.set('since_unix_ns', String(params.sinceUnixNs));
+    const url = `/api/projects/${slug}/targets/flakiest${qs.toString() ? `?${qs.toString()}` : ''}`;
+    return request<{ targets: FlakyTarget[] }>(url);
   },
 };

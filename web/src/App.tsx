@@ -1,20 +1,30 @@
-import { Link, Route, Routes } from 'react-router-dom';
-import { Activity, Bell, FolderTree, GitBranch, Gauge } from 'lucide-react';
+import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Activity, FolderTree, GitBranch, LogOut } from 'lucide-react';
+import LoginPage from '@/pages/login';
 import BuildsPage from '@/pages/builds';
 import BuildDetailPage from '@/pages/build-detail';
-import TargetsPage from '@/pages/targets';
-import OrganizationsPage from '@/pages/organizations';
-import AlertsPage from '@/pages/alerts';
+import ProjectsPage from '@/pages/projects';
+import ProjectDetailPage from '@/pages/project-detail';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { Button } from '@/components/ui/button';
+import { useAuth } from '@/lib/auth';
 
 const NAV = [
-  { to: '/', label: 'Organizations', icon: FolderTree },
+  { to: '/projects', label: 'Projects', icon: FolderTree },
   { to: '/builds', label: 'Builds', icon: Activity },
-  { to: '/targets', label: 'Targets', icon: Gauge },
-  { to: '/alerts', label: 'Alerts', icon: Bell },
 ] as const;
 
-export default function App() {
+function RequireAuth({ children }: { children: JSX.Element }) {
+  const { session, loading } = useAuth();
+  const location = useLocation();
+  if (loading) return <div className="container py-8 text-muted-foreground">Loading…</div>;
+  if (!session)
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  return children;
+}
+
+function AppShell() {
+  const { session, signOut } = useAuth();
   return (
     <div className="min-h-screen flex flex-col">
       <header className="border-b border-border/40">
@@ -35,18 +45,43 @@ export default function App() {
               </Link>
             ))}
           </nav>
+          <span className="text-sm text-muted-foreground">
+            {session?.display_name ?? session?.username}
+            {session?.is_system_admin ? ' · sysadmin' : ''}
+          </span>
+          <Button variant="ghost" size="sm" onClick={() => void signOut()}>
+            <LogOut className="h-4 w-4 mr-1" />
+            Sign out
+          </Button>
           <ThemeToggle />
         </div>
       </header>
       <main className="container flex-1 py-6">
         <Routes>
-          <Route path="/" element={<OrganizationsPage />} />
+          <Route path="/" element={<Navigate to="/projects" replace />} />
+          <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/projects/:slug" element={<ProjectDetailPage />} />
           <Route path="/builds" element={<BuildsPage />} />
           <Route path="/builds/:id" element={<BuildDetailPage />} />
-          <Route path="/targets" element={<TargetsPage />} />
-          <Route path="/alerts" element={<AlertsPage />} />
+          <Route path="*" element={<Navigate to="/projects" replace />} />
         </Routes>
       </main>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="*"
+        element={
+          <RequireAuth>
+            <AppShell />
+          </RequireAuth>
+        }
+      />
+    </Routes>
   );
 }
