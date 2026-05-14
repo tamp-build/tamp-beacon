@@ -11,9 +11,9 @@ Tamp builds emit a pinned diagnostics contract (ADR 0018) — three `ActivitySou
 | Volume | `/var/lib/tamp-beacon` (Postgres datadir + setup token + VAPID key) |
 | Status | preview — slice-1 in progress, see "Build slices" below |
 
-## Slice-3 status (you are here)
+## Slice-4 status (you are here)
 
-This branch ships **slices 1 + 2 + 3**: scaffold + bootstrap + health, cookie/OAuth auth, and now project CRUD with SonarQube-style two-tier RBAC and per-project ingest tokens. A signed-in user can create projects, manage members (admin/viewer roles, min-one-admin invariant), and mint revocable ingest tokens for their CI pipeline. System admins see every project and can promote/demote/disable users. OTLP receivers wire to those tokens in slice 4.
+This branch ships **slices 1–4**. The beacon now accepts real OTLP traffic. `POST /v1/traces` (protobuf primary, OTLP/JSON tolerant) gates each request on an `Authorization: Bearer tbk_…` header resolved against the `ProjectToken` table, then persists Build / Target / Command / Event rows under the project that owns the token. Non-Tamp instrumentation scopes are rejected with 422; revoked tokens drop to 401. The next slice (5) wires the SPA dashboard against this data.
 
 ### Running slice 1 locally
 
@@ -76,7 +76,23 @@ POST   /api/admin/users/{u}/promote           → 200                           
 POST   /api/admin/users/{u}/demote            → 200                           | 403 | 404 | 409 (min-one-sysadmin)
 POST   /api/admin/users/{u}/disable           → 200                           | 403 | 404 | 409
 POST   /api/admin/users/{u}/enable            → 200                           | 403 | 404
+
+POST   /v1/traces                             → 200 { partialSuccess: { rejectedSpans: 0 } }
+                                                                              | 400 (bad body) | 401 (no/bad/revoked token)
+                                                                              | 422 (non-Tamp scope)
+POST   /v1/metrics                            → 200 (acked + dropped pre-v0.2)
 ```
+
+### OTLP ingest
+
+```bash
+# Configure Tamp.Telemetry on the emit side
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://beacon.example.com
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer tbk_<minted-from-the-tokens-endpoint>"
+# Tamp.Telemetry defaults to protobuf — beacon accepts both x-protobuf and JSON.
+```
+
+Per-ingest, the beacon advances the token's `last_used_at` watermark so admins can spot stale or misconfigured runners.
 
 ### RBAC model
 
@@ -102,7 +118,7 @@ curl -X POST https://beacon.example.com/admin/recover \
 | 1 | scaffold + bootstrap + health | shipped |
 | 2 | GitHub OAuth login + cookie session + admin break-glass + admin recovery CLI | shipped |
 | 3 | Project CRUD + RBAC (admin/viewer) + per-project ingest tokens + sysadmin promotion | shipped |
-| 4 | OTLP/HTTP `/v1/traces` + `/v1/metrics` ingest gated by project tokens | pending |
+| 4 | OTLP/HTTP protobuf+JSON ingest gated by project tokens + Build→Project FK | shipped |
 | 5 | SPA dashboard (builds list, drill-down, slow/flaky targets) | pending |
 | 6 | Web Push failure alerts (VAPID, project-scoped) | pending |
 | 7 | Docs + on-ramp polish + 1.0 cut | pending |

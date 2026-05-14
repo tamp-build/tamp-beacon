@@ -5,20 +5,20 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Beacon.Models;
+using OtlpSpan = OpenTelemetry.Proto.Trace.V1.Span;
+using ExportTraceRequest = OpenTelemetry.Proto.Collector.Trace.V1.ExportTraceServiceRequest;
 
 namespace Tamp.Beacon.Otlp;
 
 /// <summary>
-/// Parses an OTLP/HTTP-JSON ExportTraceServiceRequest envelope and persists
-/// the spans into the beacon's SQLite store. Maps spans by their owning
-/// instrumentation scope name:
-///
+/// Parses an OTLP <c>ExportTraceServiceRequest</c> and persists the spans
+/// into the beacon store under a specific <see cref="Project"/>. Maps spans
+/// by their owning instrumentation scope name:
 /// <list type="bullet">
 ///   <item><c>Tamp.Build</c> → Build row</item>
-///   <item><c>Tamp.Build.Targets</c> → Target row (attached to the parent Build by traceId)</item>
-///   <item><c>Tamp.Build.Commands</c> → Command row (attached to the parent Target by parentSpanId)</item>
+///   <item><c>Tamp.Build.Targets</c> → Target row (attached to its parent Build by traceId)</item>
+///   <item><c>Tamp.Build.Commands</c> → Command row (attached to its parent Target by parentSpanId)</item>
 /// </list>
-///
 /// Span events on the Build span (<c>tamp.build.summary</c> etc.) flow through to the
 /// <c>events</c> table. The whole tag dict is preserved in <c>raw_tags</c> so unknown tags
 /// remain queryable from the JSON column without a schema migration.
@@ -32,23 +32,13 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
     public const string TargetSource = "Tamp.Build.Targets";
     public const string CommandSource = "Tamp.Build.Commands";
 
-    public Task<TraceIngestResult> IngestAsync(
-        ExportTraceServiceRequest request,
-        CancellationToken ct = default)
-        => IngestAsync(request, verifiedOrganization: null, ct);
-
-    /// <summary>
-    /// Ingest with an optional verified organization (from a GitHub Actions OIDC token). When
-    /// supplied, the <c>tamp.build.organization</c> tag on every Build span is overwritten with
-    /// the verified value — a leaked token cannot submit telemetry for an organization it isn't
-    /// scoped to, regardless of what the env var or span tag says.
-    /// </summary>
     public async Task<TraceIngestResult> IngestAsync(
-        ExportTraceServiceRequest request,
-        string? verifiedOrganization,
+        ExportTraceRequest request,
+        Project project,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(project);
 
         var allScopes = request.ResourceSpans
             .SelectMany(r => r.ScopeSpans)
@@ -58,9 +48,6 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
             return new TraceIngestResult(0, 0, 0);
 
         // Reject non-Tamp telemetry at ingress: every scope must start with the prefix.
-        // We accept that this is strict; misrouted Tamp.Build sibling sources (e.g. Tamp.Otel)
-        // are anchored under the same prefix so the strict check still lets future
-        // adjacent scopes through.
         foreach (var scope in allScopes)
         {
             var name = scope.Scope?.Name ?? "";
@@ -69,59 +56,54 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
                     $"this is tamp-beacon; route non-Tamp telemetry to your collector of choice (saw scope '{name}')");
         }
 
-        // Pass 1: ingest Build spans first so Target spans can resolve their parent Build by traceId.
+        // Pass 1: Build spans first so Target spans resolve their parent by traceId.
         var buildSpansByTraceId = new Dictionary<string, Build>(StringComparer.OrdinalIgnoreCase);
         foreach (var scope in allScopes.Where(s => string.Equals(s.Scope?.Name, BuildSource, StringComparison.Ordinal)))
         {
             foreach (var span in scope.Spans)
             {
-                var build = MaterializeBuild(span, verifiedOrganization);
+                var build = MaterializeBuild(span, project);
                 db.Builds.Add(build);
-                if (!string.IsNullOrEmpty(span.TraceId))
-                    buildSpansByTraceId[span.TraceId] = build;
+                var traceHex = HexOf(span.TraceId);
+                if (!string.IsNullOrEmpty(traceHex))
+                    buildSpansByTraceId[traceHex] = build;
             }
         }
 
-        // Persist Builds first so their IDs are populated for the subsequent target/command FKs.
         if (buildSpansByTraceId.Count > 0)
             await AssignSeqAndSaveBuildsAsync(buildSpansByTraceId.Values, ct).ConfigureAwait(false);
 
-        // Pass 2: ingest Target spans, attached to the Build with the matching traceId.
+        // Pass 2: Target spans, attached to their owning Build by traceId.
         var targetSpansBySpanId = new Dictionary<string, Target>(StringComparer.OrdinalIgnoreCase);
         foreach (var scope in allScopes.Where(s => string.Equals(s.Scope?.Name, TargetSource, StringComparison.Ordinal)))
         {
             foreach (var span in scope.Spans)
             {
-                if (!buildSpansByTraceId.TryGetValue(span.TraceId ?? "", out var owningBuild))
+                var traceHex = HexOf(span.TraceId);
+                if (!buildSpansByTraceId.TryGetValue(traceHex, out var owningBuild))
                 {
-                    // Orphan target span — no Build was ingested in this batch with the same trace.
-                    // We still record it under a synthetic Build to preserve data; tests cover this path.
-                    owningBuild = await ResolveOrCreateOrphanBuildAsync(span, ct).ConfigureAwait(false);
-                    buildSpansByTraceId[span.TraceId ?? Guid.NewGuid().ToString("N")] = owningBuild;
+                    owningBuild = await ResolveOrCreateOrphanBuildAsync(span, project, ct).ConfigureAwait(false);
+                    buildSpansByTraceId[string.IsNullOrEmpty(traceHex) ? Guid.NewGuid().ToString("N") : traceHex] = owningBuild;
                 }
-
                 var target = MaterializeTarget(span, owningBuild);
                 db.Targets.Add(target);
-                if (!string.IsNullOrEmpty(span.SpanId))
-                    targetSpansBySpanId[span.SpanId] = target;
+                var spanHex = HexOf(span.SpanId);
+                if (!string.IsNullOrEmpty(spanHex))
+                    targetSpansBySpanId[spanHex] = target;
             }
         }
-
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
 
-        // Pass 3: ingest Command spans, attached to their parent Target by parentSpanId.
+        // Pass 3: Command spans, attached to their parent Target by parentSpanId.
         var commandCount = 0;
         foreach (var scope in allScopes.Where(s => string.Equals(s.Scope?.Name, CommandSource, StringComparison.Ordinal)))
         {
             foreach (var span in scope.Spans)
             {
-                if (string.IsNullOrEmpty(span.ParentSpanId) ||
-                    !targetSpansBySpanId.TryGetValue(span.ParentSpanId, out var owningTarget))
+                var parentHex = HexOf(span.ParentSpanId);
+                if (string.IsNullOrEmpty(parentHex) ||
+                    !targetSpansBySpanId.TryGetValue(parentHex, out var owningTarget))
                 {
-                    // Orphan command — no Target span in this batch matches the parentSpanId.
-                    // Pre-existing Target spans from earlier requests aren't looked up here
-                    // (v0.1.0 simplification — commands without their target in the same OTLP
-                    // batch are a corner case for streaming exporters; revisit if it matters).
                     continue;
                 }
                 var command = MaterializeCommand(span, owningTarget);
@@ -129,16 +111,16 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
                 commandCount++;
             }
         }
-
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
 
-        // Pass 4: ingest span-events emitted on the Build spans as Event rows.
+        // Pass 4: span-events emitted on the Build spans → Event rows.
         var eventCount = 0;
         foreach (var scope in allScopes.Where(s => string.Equals(s.Scope?.Name, BuildSource, StringComparison.Ordinal)))
         {
             foreach (var span in scope.Spans)
             {
-                if (!buildSpansByTraceId.TryGetValue(span.TraceId ?? "", out var owningBuild)) continue;
+                var traceHex = HexOf(span.TraceId);
+                if (!buildSpansByTraceId.TryGetValue(traceHex, out var owningBuild)) continue;
                 foreach (var evt in span.Events)
                 {
                     var bag = TagBag.Flatten(evt.Attributes);
@@ -146,7 +128,7 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
                     {
                         BuildId = owningBuild.Id,
                         Name = evt.Name,
-                        AtUnixNs = long.TryParse(evt.TimeUnixNano, out var t) ? t : 0,
+                        AtUnixNs = (long)evt.TimeUnixNano,
                         RawTags = TagBag.ToJson(bag),
                     });
                     eventCount++;
@@ -161,22 +143,18 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
             CommandsIngested: commandCount);
     }
 
-    private async Task<Build> ResolveOrCreateOrphanBuildAsync(Span span, CancellationToken ct)
+    private async Task<Build> ResolveOrCreateOrphanBuildAsync(OtlpSpan span, Project project, CancellationToken ct)
     {
-        // Try to find an existing Build span in the DB that owns this traceId.
-        // We use the SpanId of the Build span as the foreign key surrogate via parentSpanId chain;
-        // for v0.1.0 we simply create a synthetic Build with attributes lifted from the orphan target.
-        // Orphan path doesn't see the verified-org context, but the parent Build span is what
-        // carries the auth scope; commands/targets without their owning build span are best-effort.
         var bag = TagBag.Flatten(span.Attributes);
-        var projectName = TagBag.GetString(bag, "tamp.build.project.name") ?? "unknown";
+        var projectName = TagBag.GetString(bag, "tamp.build.project.name") ?? project.Slug;
         var build = new Build
         {
-            Seq = 0, // assigned in SaveChanges path
+            Seq = 0,
+            ProjectId = project.Id,
             ProjectName = projectName,
             ProjectArea = TagBag.GetString(bag, "tamp.build.project.area"),
-            Organization = TagBag.GetString(bag, "tamp.build.organization") ?? projectName,
-            StartedUnixNs = long.TryParse(span.StartTimeUnixNano, out var st) ? st : 0,
+            Organization = TagBag.GetString(bag, "tamp.build.organization") ?? project.Slug,
+            StartedUnixNs = (long)span.StartTimeUnixNano,
             DurationNs = 0,
             ExitCode = 0,
             Outcome = "success",
@@ -189,9 +167,9 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
 
     private async Task AssignSeqAndSaveBuildsAsync(IEnumerable<Build> builds, CancellationToken ct)
     {
-        // Each Build needs a unique monotonic seq. We pull the current max in one query
-        // and assign incrementally. Concurrent writers from multiple requests would race;
-        // SQLite's serialized-write model is sufficient for the trusted-network v0.1.0 case.
+        // Each Build needs a unique monotonic seq. Postgres serializes concurrent
+        // writers via the unique index on builds.seq — if two ingest requests race
+        // the loser retries; v0.1.0 is single-instance so retries are rare.
         var maxSeq = await db.Builds.MaxAsync(b => (long?)b.Seq, ct).ConfigureAwait(false) ?? 0;
         long next = maxSeq + 1;
         foreach (var b in builds)
@@ -201,26 +179,24 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 
-    private static Build MaterializeBuild(Span span, string? verifiedOrganization)
+    private static Build MaterializeBuild(OtlpSpan span, Project project)
     {
         var bag = TagBag.Flatten(span.Attributes);
-        var projectName = TagBag.GetString(bag, "tamp.build.project.name") ?? "unknown";
-        // Verified org wins: when present, the env-var-supplied tag becomes a hint that we
-        // override with the value derived from the OIDC token's repository_owner. When absent
-        // (auth disabled or token-less local runs), fall back to the tag, then to project name.
-        var organization = verifiedOrganization
-            ?? TagBag.GetString(bag, "tamp.build.organization")
-            ?? projectName;
+        var projectName = TagBag.GetString(bag, "tamp.build.project.name") ?? project.Slug;
+        // The project FK is the auth-derived source of truth; the tags are
+        // adopter-controlled and saved as denormalized hints for the SPA.
+        var organization = TagBag.GetString(bag, "tamp.build.organization") ?? project.Slug;
         return new Build
         {
-            Seq = 0, // assigned at save time
+            Seq = 0,
+            ProjectId = project.Id,
             ProjectName = projectName,
             ProjectArea = TagBag.GetString(bag, "tamp.build.project.area"),
             Organization = organization,
             CliVersion = TagBag.GetString(bag, "tamp.build.cli_version"),
-            StartedUnixNs = long.TryParse(span.StartTimeUnixNano, out var st) ? st : 0,
+            StartedUnixNs = (long)span.StartTimeUnixNano,
             DurationNs = TagBag.GetLong(bag, "tamp.build.duration_ns",
-                fallback: ParseDurationFromTimes(span.StartTimeUnixNano, span.EndTimeUnixNano)),
+                fallback: ParseDuration(span)),
             ExitCode = TagBag.GetInt(bag, "tamp.build.exit_code"),
             Outcome = TagBag.GetString(bag, "outcome") ?? "success",
             TargetsTotal = TagBag.GetInt(bag, "tamp.build.targets.total"),
@@ -235,7 +211,7 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
         };
     }
 
-    private static Target MaterializeTarget(Span span, Build owningBuild)
+    private static Target MaterializeTarget(OtlpSpan span, Build owningBuild)
     {
         var bag = TagBag.Flatten(span.Attributes);
         return new Target
@@ -245,9 +221,9 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
             Name = TagBag.GetString(bag, "tamp.target.name") ?? span.Name,
             Phase = TagBag.GetString(bag, "tamp.target.phase"),
             Status = TagBag.GetString(bag, "tamp.target.status") ?? "success",
-            StartedUnixNs = long.TryParse(span.StartTimeUnixNano, out var st) ? st : 0,
+            StartedUnixNs = (long)span.StartTimeUnixNano,
             DurationNs = TagBag.GetLong(bag, "tamp.target.duration_ns",
-                fallback: ParseDurationFromTimes(span.StartTimeUnixNano, span.EndTimeUnixNano)),
+                fallback: ParseDuration(span)),
             CpuTimeMs = TagBag.GetDouble(bag, "tamp.target.cpu_time_ms"),
             GcAllocatedBytes = TagBag.GetLong(bag, "tamp.target.gc_allocated_bytes"),
             GcGen0 = TagBag.GetInt(bag, "tamp.target.gc.gen0.collections"),
@@ -258,7 +234,7 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
         };
     }
 
-    private static Command MaterializeCommand(Span span, Target owningTarget)
+    private static Command MaterializeCommand(OtlpSpan span, Target owningTarget)
     {
         var bag = TagBag.Flatten(span.Attributes);
         return new Command
@@ -269,7 +245,7 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
             ArgsCount = TagBag.GetInt(bag, "tamp.cmd.args.count"),
             ExitCode = TagBag.GetInt(bag, "tamp.cmd.exit_code"),
             DurationNs = TagBag.GetLong(bag, "tamp.cmd.duration_ns",
-                fallback: ParseDurationFromTimes(span.StartTimeUnixNano, span.EndTimeUnixNano)),
+                fallback: ParseDuration(span)),
             CpuTotalMs = TagBag.GetDouble(bag, "tamp.cmd.child.cpu_time.total_ms"),
             PeakMemoryBytes = TagBag.GetLong(bag, "tamp.cmd.child.peak_working_set_bytes"),
             StdoutBytes = TagBag.GetLong(bag, "tamp.cmd.stdout_bytes"),
@@ -278,16 +254,17 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
         };
     }
 
-    private static long ParseDurationFromTimes(string start, string end)
+    private static long ParseDuration(OtlpSpan span) =>
+        span.EndTimeUnixNano > span.StartTimeUnixNano
+            ? (long)(span.EndTimeUnixNano - span.StartTimeUnixNano)
+            : 0;
+
+    private static string HexOf(Google.Protobuf.ByteString bytes)
     {
-        if (!long.TryParse(start, out var s)) return 0;
-        if (!long.TryParse(end, out var e)) return 0;
-        return e > s ? e - s : 0;
+        if (bytes is null || bytes.Length == 0) return string.Empty;
+        return Convert.ToHexStringLower(bytes.Span);
     }
 }
 
 /// <summary>Counts of rows persisted from a single ingest call.</summary>
-/// <param name="BuildsIngested">Build spans persisted.</param>
-/// <param name="TargetsIngested">Target spans persisted.</param>
-/// <param name="CommandsIngested">Command spans persisted.</param>
 public sealed record TraceIngestResult(int BuildsIngested, int TargetsIngested, int CommandsIngested);

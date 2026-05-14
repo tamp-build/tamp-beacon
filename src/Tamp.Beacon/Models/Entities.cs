@@ -16,6 +16,14 @@ public sealed class Build
     /// <summary>Monotonic sequence used by dashboard delta polling.</summary>
     public long Seq { get; set; }
 
+    /// <summary>
+    /// FK to <see cref="Project"/>. Derived from the ingest token at write time;
+    /// authoritative for RBAC. The <see cref="ProjectName"/> string is the
+    /// adopter-supplied display label and may diverge.
+    /// </summary>
+    public long ProjectId { get; set; }
+    public Project Project { get; set; } = null!;
+
     public string ProjectName { get; set; } = "unknown";
     public string? ProjectArea { get; set; }
 

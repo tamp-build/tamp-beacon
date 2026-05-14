@@ -19,6 +19,24 @@
     <PackageReference Include="Dapper" />
     <PackageReference Include="Konscious.Security.Cryptography.Argon2" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.Tools">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!--
+    OTLP proto types — generated under OpenTelemetry.Proto.* namespaces by
+    Grpc.Tools at build time. We pin protos/ as the proto-include root so
+    the generated `using OpenTelemetry.Proto.Trace.V1` namespace matches the
+    .proto package declarations.
+  -->
+  <ItemGroup>
+    <Protobuf Include="protos\opentelemetry\proto\**\*.proto"
+              ProtoRoot="protos"
+              GrpcServices="None"
+              CompileOutputs="true" />
   </ItemGroup>
 
   <!--
@@ -35,8 +53,6 @@
     <Compile Remove="Api\BuildsEndpoints.cs" />
     <Compile Remove="Api\TargetsEndpoints.cs" />
     <Compile Remove="Api\PushEndpoints.cs" />
-    <Compile Remove="Api\OtlpEndpoints.cs" />
-    <Compile Remove="Otlp\**\*.cs" />
     <Compile Remove="Push\**\*.cs" />
   </ItemGroup>
 

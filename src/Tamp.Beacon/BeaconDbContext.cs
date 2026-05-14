@@ -53,6 +53,9 @@ public sealed class BeaconDbContext(DbContextOptions<BeaconDbContext> options) :
             b.HasKey(x => x.Id);
             b.Property(x => x.Id).HasColumnName("id").ValueGeneratedOnAdd();
             b.Property(x => x.Seq).HasColumnName("seq");
+            b.Property(x => x.ProjectId).HasColumnName("project_id");
+            b.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(x => x.ProjectId).HasDatabaseName("ix_builds_project_id");
             b.Property(x => x.Organization).HasColumnName("organization").IsRequired();
             b.Property(x => x.ProjectName).HasColumnName("project_name").IsRequired();
             b.Property(x => x.ProjectArea).HasColumnName("project_area");

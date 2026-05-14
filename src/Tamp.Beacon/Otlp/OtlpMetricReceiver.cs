@@ -2,20 +2,21 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using ExportMetricsRequest = OpenTelemetry.Proto.Collector.Metrics.V1.ExportMetricsServiceRequest;
 
 namespace Tamp.Beacon.Otlp;
 
 /// <summary>
-/// Receives OTLP/HTTP-JSON metrics envelopes. v0.1.0 acks every Tamp metric
-/// payload but does not persist counters/histograms — the trace stream is
-/// the load-bearing signal for the dashboard, and metric storage is in the
+/// Receives OTLP metrics envelopes. v0.1.0 acks every Tamp metric payload
+/// but does not persist counters / histograms — the trace stream is the
+/// load-bearing signal for the dashboard, and metric storage is in the
 /// 0.2.0 dashboard chart epic. Non-Tamp metrics still get rejected at the
 /// ingress contract so misrouted senders see HTTP 422 immediately.
 /// </summary>
 public sealed class OtlpMetricReceiver
 {
     public Task<MetricIngestResult> IngestAsync(
-        ExportMetricsServiceRequest request,
+        ExportMetricsRequest request,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);

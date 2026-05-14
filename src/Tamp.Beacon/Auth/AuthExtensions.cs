@@ -50,6 +50,8 @@ public static class AuthExtensions
         services.AddScoped<GitHubUserProvisioner>();
         services.AddScoped<ProjectAuthorization>();
         services.AddScoped<ProjectTokenService>();
+        services.AddScoped<Otlp.OtlpTraceReceiver>();
+        services.AddSingleton<Otlp.OtlpMetricReceiver>();
         services.AddHostedService<SetupTokenManager>();
 
         AddDataProtection(services, config);
