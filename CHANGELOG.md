@@ -8,6 +8,11 @@ Pre-1.0 versions may break public API freely between minor versions; the `0.x` l
 
 ## [Unreleased]
 
+### Added
+
+- **Data-protection key-ring encryption at rest** (TAM-219). New `Beacon:Auth:KeyProtection` config section with three modes: `None` (lab default — boots with a loud startup WARNING), `SecretFile` (32-byte AES-256-GCM key loaded from disk; ship a Kubernetes Secret, point the beacon at it), and `X509` (PFX-based, framework-provided `CertificateXmlEncryptor`). Adopter-hosted production deploys no longer have to accept session-forgery risk from a stolen PVC snapshot. Wiring deferred via `IConfigureOptions<KeyManagementOptions>` so late-binding config providers (env vars, layered appsettings) win over the eager registration-time defaults.
+- **Production checklist** (`docs/production-checklist.md`) — top item is the key-ring encryption setup; also covers HTTPS, external Postgres decision, PVC access discipline, recovery handle, and image-tag pinning.
+
 ## [0.1.0] - 2026-05-15
 
 First public release. Single-image OTLP receiver + dashboard for Tamp builds, shipped as `ghcr.io/tamp-build/tamp-beacon:0.1.0` (`linux/amd64`).

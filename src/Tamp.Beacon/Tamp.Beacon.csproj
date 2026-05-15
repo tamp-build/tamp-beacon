@@ -57,4 +57,9 @@
     <PackageReference Include="WebPush" />
   </ItemGroup>
 
+  <!-- Test assembly reaches internal types (e.g. KeyProtectionWarningService, SecretFileXmlEncryptor). -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tamp.Beacon.Tests" />
+  </ItemGroup>
+
 </Project>

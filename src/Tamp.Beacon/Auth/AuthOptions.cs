@@ -80,6 +80,15 @@ public sealed class AuthOptions
 
     /// <summary>GitHub OAuth sign-in config. Optional — when disabled the only login path is /break-glass.</summary>
     public GitHubOAuthOptions GitHub { get; set; } = new();
+
+    /// <summary>
+    /// Data-protection key-ring encryption-at-rest config (TAM-219).
+    /// Default <see cref="KeyProtectionMode.None"/> matches the lab
+    /// posture; adopter-hosted deploys MUST set this to SecretFile or
+    /// X509 — the beacon logs a WARNING at startup when it boots with
+    /// the default.
+    /// </summary>
+    public KeyProtectionOptions KeyProtection { get; set; } = new();
 }
 
 /// <summary>

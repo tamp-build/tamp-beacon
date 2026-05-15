@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -70,6 +71,7 @@ public static class AuthExtensions
         services.AddHostedService<SetupTokenManager>();
 
         AddDataProtection(services, config);
+        services.AddHostedService<KeyProtectionWarningService>();
         AddAuthentication(services, config);
         services.AddAuthorization();
 
@@ -102,29 +104,12 @@ public static class AuthExtensions
 
     private static void AddDataProtection(IServiceCollection services, IConfiguration config)
     {
-        var auth = new AuthOptions();
-        config.GetSection("Beacon:Auth").Bind(auth);
-        try
-        {
-            if (!Directory.Exists(auth.DataProtectionKeyDirectory))
-            {
-                Directory.CreateDirectory(auth.DataProtectionKeyDirectory);
-            }
-        }
-        catch (Exception ex)
-        {
-            // Fall through to in-memory keys if the configured dir is unwritable
-            // (e.g. tests running without the PVC). A warning surfaces in logs;
-            // production deploys must ensure the PVC mount is writable.
-            Console.Error.WriteLine(
-                $"[auth] could not prepare data-protection key directory '{auth.DataProtectionKeyDirectory}': {ex.Message}");
-        }
-
-        var dp = services.AddDataProtection().SetApplicationName("tamp-beacon");
-        if (Directory.Exists(auth.DataProtectionKeyDirectory))
-        {
-            dp.PersistKeysToFileSystem(new DirectoryInfo(auth.DataProtectionKeyDirectory));
-        }
+        // The data-protection ring is configured via a deferred IConfigureOptions
+        // so AuthOptions resolves AFTER any late-binding config providers
+        // (e.g. WebApplicationFactory's AddInMemoryCollection in tests). An
+        // eager Bind() at this point would lock in stale defaults.
+        services.AddDataProtection().SetApplicationName("tamp-beacon");
+        services.AddSingleton<IConfigureOptions<KeyManagementOptions>, KeyManagementOptionsConfigurator>();
     }
 
     private static void AddAuthentication(IServiceCollection services, IConfiguration config)

@@ -240,10 +240,15 @@ dotnet tool install --global dotnet-tamp --version 1.0.0
 dotnet tamp Test
 ```
 
+## Production checklist
+
+Before standing the beacon up where you don't control every reader of the PVC, work through [`docs/production-checklist.md`](docs/production-checklist.md). Top of the list: switch `Beacon:Auth:KeyProtection:Mode` away from `None` so the data-protection key ring is encrypted at rest (TAM-219). The beacon logs a startup WARNING every boot until this is configured.
+
 ## Related
 
 - Emit-side quickstart: [`docs/observing-your-builds.md`](docs/observing-your-builds.md) — installing `Tamp.Telemetry`, env-var wiring, CI shape, Web Push opt-in
 - Deploy reference: [`deploy/`](deploy/) — docker-compose for single-host, StatefulSet + Service + Ingress for Kubernetes
+- Production checklist: [`docs/production-checklist.md`](docs/production-checklist.md) — encryption-at-rest, HTTPS, external Postgres decision, image-tag pinning
 - Design sketch: [`tamp-beacon-v0.1.0.md`](https://github.com/tamp-build/tamp/blob/main/docs/sketches/tamp-beacon-v0.1.0.md) (in the Tamp repo)
 - Auth spec: TAM-214 (private YouTrack — public summary forthcoming)
 - Emission contract: [ADR 0018 — Diagnostics emission contract](https://github.com/tamp-build/tamp/blob/main/docs/adr/0018-diagnostics-emission-contract.md)
