@@ -124,6 +124,7 @@ class Build : TampBuild
             .SetProject(RootDirectory / "tests" / "Tamp.Beacon.Tests" / "Tamp.Beacon.Tests.csproj")
             .SetConfiguration(Configuration)
             .SetNoBuild(true)
+            .AddLogger("trx;LogFileName=test-results.trx")
             .SetResultsDirectory(Artifacts / "test-results")));
 
     Target Publish => _ => _

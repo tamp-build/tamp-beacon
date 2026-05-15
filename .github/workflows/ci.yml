@@ -22,12 +22,12 @@ jobs:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
       TampCoreMode: package
-      # Dogfood — emit a Tamp build span to the lab beacon on every CI
-      # run so we can see ourselves on the dashboard under tamp →
-      # main-ci / pr-validation. ENDPOINT is a non-secret repo Variable;
-      # HEADERS carries the Bearer token and is a repo Secret. Vars +
-      # secrets are set via `gh variable set` / `gh secret set` and
-      # never logged — Tamp.Telemetry reads them at process start.
+      # Dogfood — emit Build / Target / Command spans to the lab beacon
+      # on every CI run. The whole pipeline runs through `dotnet tamp
+      # Test` so each step in Build.cs's target graph (Restore, YarnInstall,
+      # FrontendBuild, CopyWwwroot, Compile, Test) lands a span. ENDPOINT
+      # is a non-secret repo Variable; HEADERS carries the Bearer token
+      # and is a repo Secret. Tamp.Telemetry reads them at process start.
       OTEL_EXPORTER_OTLP_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_ENDPOINT }}
       OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
       OTEL_SERVICE_NAME: tamp-beacon
@@ -59,7 +59,6 @@ jobs:
         shell: bash
         run: |
           dotnet --info
-          dotnet --list-sdks
           node --version
           yarn --version
 
@@ -71,48 +70,16 @@ jobs:
           restore-keys: |
             nuget-${{ runner.os }}-
 
-      - name: Yarn install (immutable)
-        working-directory: web
-        run: yarn install --immutable
+      - name: Install dotnet-tamp
+        run: dotnet tool install --global dotnet-tamp --version 1.0.0
 
-      - name: Yarn build SPA
-        working-directory: web
-        run: yarn build
-
-      - name: Copy SPA into wwwroot
-        shell: bash
-        run: |
-          mkdir -p src/Tamp.Beacon/wwwroot
-          cp -R web/dist/. src/Tamp.Beacon/wwwroot/
-
-      - name: Restore
-        run: dotnet restore Tamp.Beacon.slnx
-
-      - name: Build
-        run: dotnet build Tamp.Beacon.slnx --no-restore --configuration Release
-
-      - name: Test
-        run: dotnet test Tamp.Beacon.slnx --no-build --configuration Release --logger "trx;LogFileName=test-results.trx" --results-directory ./TestResults
+      - name: tamp Test (drives Restore → YarnInstall → FrontendBuild → CopyWwwroot → Compile → Test through Build.cs)
+        run: dotnet tamp Test
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: ./TestResults/**/*.trx
+          path: ./artifacts/test-results/**/*.trx
           if-no-files-found: warn
-
-      - name: Install dotnet-tamp (for the telemetry emit)
-        if: env.OTEL_EXPORTER_OTLP_ENDPOINT != ''
-        run: dotnet tool install --global dotnet-tamp --version 1.0.0
-
-      - name: Emit Tamp build span to the lab beacon
-        if: env.OTEL_EXPORTER_OTLP_ENDPOINT != ''
-        shell: bash
-        run: |
-          # Cheap target — just exercises Build.cs's Main(). The
-          # build/Build.csproj already references Tamp.Telemetry; its
-          # FromEnvironment() reads the OTEL_* env above and ships a
-          # single Build span. PR-validation runs land under one
-          # BuildConfig, main pushes under another.
-          dotnet tamp Info
