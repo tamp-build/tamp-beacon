@@ -1,0 +1,110 @@
+name: Push main image
+
+# Floating :main tag for adopters tracking trunk between releases. Fires
+# AFTER CI completes successfully on main — never pushes :main from a
+# broken commit. Tag-driven release.yml is the only path that produces
+# semver tags (:0.1.0 / :0.1 / :latest); this one only ever touches :main.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  DOTNET_NOLOGO: '1'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+
+jobs:
+  push-main:
+    name: build + push :main to ghcr.io
+    runs-on: ubuntu-latest
+    # Only fire if the upstream CI run actually succeeded — workflow_run
+    # also fires on cancelled/failed conclusions.
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout the commit CI passed on
+        uses: actions/checkout@v4
+        with:
+          # Pin to the exact SHA CI greenlit, not whatever HEAD is at the
+          # time this workflow fires — protects against a fast follow-up
+          # push slipping in between events.
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Install supported .NET SDKs
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Enable Yarn (Berry)
+        run: corepack enable && corepack prepare yarn@4.5.0 --activate
+
+      - name: NuGet cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Yarn build SPA
+        working-directory: web
+        run: |
+          yarn install --immutable
+          yarn build
+
+      - name: Copy SPA into wwwroot
+        shell: bash
+        run: |
+          mkdir -p src/Tamp.Beacon/wwwroot
+          cp -R web/dist/. src/Tamp.Beacon/wwwroot/
+
+      - name: dotnet publish (linux-musl-x64, self-contained)
+        run: |
+          mkdir -p publish
+          dotnet publish src/Tamp.Beacon/Tamp.Beacon.csproj \
+            -c Release \
+            -r linux-musl-x64 \
+            --self-contained true \
+            -p:PublishSingleFile=false \
+            -p:PublishTrimmed=false \
+            -o publish/
+
+      - name: Setup Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push :main
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/tamp-beacon:main
+          labels: |
+            org.opencontainers.image.title=tamp-beacon
+            org.opencontainers.image.version=main
+            org.opencontainers.image.revision=${{ github.event.workflow_run.head_sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
