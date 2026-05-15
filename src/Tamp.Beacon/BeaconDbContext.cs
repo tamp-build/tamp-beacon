@@ -60,6 +60,8 @@ public sealed class BeaconDbContext(DbContextOptions<BeaconDbContext> options) :
             b.Property(x => x.BuildConfigId).HasColumnName("build_config_id");
             b.HasOne(x => x.BuildConfig).WithMany().HasForeignKey(x => x.BuildConfigId).OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => x.BuildConfigId).HasDatabaseName("ix_builds_build_config_id");
+            b.Property(x => x.TraceId).HasColumnName("trace_id");
+            b.HasIndex(x => new { x.BuildConfigId, x.TraceId }).HasDatabaseName("ix_builds_config_trace");
             b.Property(x => x.Organization).HasColumnName("organization").IsRequired();
             b.Property(x => x.ProjectName).HasColumnName("project_name").IsRequired();
             b.Property(x => x.ProjectArea).HasColumnName("project_area");

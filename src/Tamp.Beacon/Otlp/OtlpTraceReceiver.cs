@@ -63,6 +63,11 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
         }
 
         // Pass 1: Build spans first so Target spans resolve their parent by traceId.
+        // TAM-218 — match against (project, trace_id) in the DB first. If a synthetic
+        // Build row was already created by an out-of-order Target span in an earlier
+        // OTLP batch, UPDATE it with the rich attributes from this Build span rather
+        // than INSERT a duplicate. Long CI builds (> ~5s — the BatchProcessor's
+        // default scheduled-flush window) hit this every time.
         var buildSpansByTraceId = new Dictionary<string, Build>(StringComparer.OrdinalIgnoreCase);
         foreach (var scope in allScopes.Where(s => string.Equals(s.Scope?.Name, BuildSource, StringComparison.Ordinal)))
         {
@@ -71,9 +76,8 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
                 var bag = TagBag.Flatten(span.Attributes);
                 var configName = TagBag.GetString(bag, ConfigNameTag) ?? DefaultConfigSlug;
                 var config = await ResolveOrCreateConfigAsync(project, configName, ct).ConfigureAwait(false);
-                var build = MaterializeBuild(span, project, config, bag);
-                db.Builds.Add(build);
                 var traceHex = HexOf(span.TraceId);
+                var build = await ReconcileBuildAsync(span, project, config, bag, traceHex, ct).ConfigureAwait(false);
                 if (!string.IsNullOrEmpty(traceHex))
                     buildSpansByTraceId[traceHex] = build;
             }
@@ -83,6 +87,11 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
             await AssignSeqAndSaveBuildsAsync(buildSpansByTraceId.Values, ct).ConfigureAwait(false);
 
         // Pass 2: Target spans, attached to their owning Build by traceId.
+        // TAM-218 — same reconciliation path as Pass 1. If a Target span arrives
+        // in a batch with no Build span (the common long-build case), search the
+        // DB for an existing Build under (project, trace_id) first; only fall
+        // through to a synthetic Build if even that's empty (truly orphaned
+        // target — Build span never coming).
         var targetSpansBySpanId = new Dictionary<string, Target>(StringComparer.OrdinalIgnoreCase);
         foreach (var scope in allScopes.Where(s => string.Equals(s.Scope?.Name, TargetSource, StringComparison.Ordinal)))
         {
@@ -91,7 +100,8 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
                 var traceHex = HexOf(span.TraceId);
                 if (!buildSpansByTraceId.TryGetValue(traceHex, out var owningBuild))
                 {
-                    owningBuild = await ResolveOrCreateOrphanBuildAsync(span, project, ct).ConfigureAwait(false);
+                    owningBuild = await FindBuildByTraceAsync(project, traceHex, ct).ConfigureAwait(false)
+                                  ?? await ResolveOrCreateOrphanBuildAsync(span, project, ct).ConfigureAwait(false);
                     buildSpansByTraceId[string.IsNullOrEmpty(traceHex) ? Guid.NewGuid().ToString("N") : traceHex] = owningBuild;
                 }
                 var target = MaterializeTarget(span, owningBuild);
@@ -163,6 +173,7 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
             Seq = 0,
             ProjectId = project.Id,
             BuildConfigId = config.Id,
+            TraceId = HexOf(span.TraceId),
             ProjectName = projectName,
             ProjectArea = TagBag.GetString(bag, "tamp.build.project.area"),
             Organization = TagBag.GetString(bag, "tamp.build.organization") ?? project.Slug,
@@ -175,6 +186,68 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
         db.Builds.Add(build);
         await AssignSeqAndSaveBuildsAsync(new[] { build }, ct).ConfigureAwait(false);
         return build;
+    }
+
+    /// <summary>
+    /// TAM-218 — locate an existing Build row for (project, trace_id) so Target /
+    /// Command spans that arrive in OTLP batches LATER than their parent Build
+    /// span (or earlier, as a synthetic) attach to the same row.
+    /// </summary>
+    private Task<Build?> FindBuildByTraceAsync(Project project, string traceHex, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(traceHex)) return Task.FromResult<Build?>(null);
+        return db.Builds
+            .FirstOrDefaultAsync(b => b.ProjectId == project.Id && b.TraceId == traceHex, ct);
+    }
+
+    /// <summary>
+    /// Insert a new Build for (project, trace_id) or UPDATE the existing row if a
+    /// synthetic was already created by an out-of-order Target / Command batch.
+    /// The end-state is one Build row per traceId regardless of which kind of
+    /// span landed first.
+    /// </summary>
+    private async Task<Build> ReconcileBuildAsync(
+        OtlpSpan span, Project project, BuildConfig config,
+        Dictionary<string, object?> bag, string traceHex, CancellationToken ct)
+    {
+        var existing = await FindBuildByTraceAsync(project, traceHex, ct).ConfigureAwait(false);
+        if (existing is not null)
+        {
+            // Already-attached row (likely synthetic from a prior Target-batch).
+            // Overlay the rich Build-span attributes.
+            ApplyBuildSpan(existing, span, project, config, bag);
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            return existing;
+        }
+
+        var fresh = MaterializeBuild(span, project, config, bag);
+        db.Builds.Add(fresh);
+        await AssignSeqAndSaveBuildsAsync(new[] { fresh }, ct).ConfigureAwait(false);
+        return fresh;
+    }
+
+    private static void ApplyBuildSpan(Build target, OtlpSpan span, Project project, BuildConfig config, Dictionary<string, object?> bag)
+    {
+        target.BuildConfigId = config.Id;
+        target.TraceId = HexOf(span.TraceId);
+        target.ProjectName = TagBag.GetString(bag, "tamp.build.project.name") ?? project.Slug;
+        target.ProjectArea = TagBag.GetString(bag, "tamp.build.project.area");
+        target.Organization = TagBag.GetString(bag, "tamp.build.organization") ?? project.Slug;
+        target.CliVersion = TagBag.GetString(bag, "tamp.build.cli_version");
+        target.StartedUnixNs = (long)span.StartTimeUnixNano;
+        target.DurationNs = TagBag.GetLong(bag, "tamp.build.duration_ns",
+            fallback: ParseDuration(span));
+        target.ExitCode = TagBag.GetInt(bag, "tamp.build.exit_code");
+        target.Outcome = TagBag.GetString(bag, "outcome") ?? "success";
+        target.TargetsTotal = TagBag.GetInt(bag, "tamp.build.targets.total");
+        target.TargetsFailed = TagBag.GetInt(bag, "tamp.build.targets.failed");
+        target.CommandsTotal = TagBag.GetInt(bag, "tamp.build.commands.total");
+        target.FailureTarget = TagBag.GetString(bag, "tamp.build.failure.target");
+        target.HostOs = TagBag.GetString(bag, "tamp.host.os");
+        target.HostArch = TagBag.GetString(bag, "tamp.host.arch");
+        target.CiVendor = TagBag.GetString(bag, "tamp.ci.vendor");
+        target.PeakMemoryBytes = TagBag.GetLong(bag, "tamp.build.peak_working_set_bytes");
+        target.RawTags = TagBag.ToJson(bag);
     }
 
     /// <summary>
@@ -254,6 +327,7 @@ public sealed class OtlpTraceReceiver(BeaconDbContext db)
             Seq = 0,
             ProjectId = project.Id,
             BuildConfigId = config.Id,
+            TraceId = HexOf(span.TraceId),
             ProjectName = projectName,
             ProjectArea = TagBag.GetString(bag, "tamp.build.project.area"),
             Organization = organization,

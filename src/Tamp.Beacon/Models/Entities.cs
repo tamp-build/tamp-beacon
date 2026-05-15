@@ -33,6 +33,16 @@ public sealed class Build
     public long BuildConfigId { get; set; }
     public BuildConfig BuildConfig { get; set; } = null!;
 
+    /// <summary>
+    /// Lowercase-hex of the OTLP trace ID for the Build span. Persisted so
+    /// the receiver can reconcile Target / Command spans that arrive in a
+    /// LATER OTLP batch with the Build span (TAM-218 — happens on any
+    /// build whose duration exceeds the exporter's scheduled flush
+    /// interval). Nullable for synthetic builds created before the trace
+    /// ID was known.
+    /// </summary>
+    public string? TraceId { get; set; }
+
     public string ProjectName { get; set; } = "unknown";
     public string? ProjectArea { get; set; }
 
