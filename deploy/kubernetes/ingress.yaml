@@ -1,0 +1,35 @@
+# Example Ingress — adjust the host, ingressClassName, and TLS to match
+# your cluster's ingress controller and cert-manager / external-dns setup.
+#
+# Web Push REQUIRES HTTPS in production browsers (the Service Worker
+# can't subscribe to a push manager over plain HTTP). Termination at the
+# ingress is fine; tamp-beacon doesn't care about TLS upstream.
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tamp-beacon
+  labels:
+    app.kubernetes.io/name: tamp-beacon
+  annotations:
+    # Increase if you're emitting OTLP payloads larger than 1MB per request
+    # (default for many ingress controllers). Tamp's spans are small, but
+    # CI runners that batch heavily can exceed defaults.
+    nginx.ingress.kubernetes.io/proxy-body-size: "16m"
+spec:
+  ingressClassName: nginx     # change to traefik / azure / gke / etc.
+  tls:
+    - hosts:
+        - beacon.example.com
+      secretName: tamp-beacon-tls
+  rules:
+    - host: beacon.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tamp-beacon
+                port:
+                  name: http

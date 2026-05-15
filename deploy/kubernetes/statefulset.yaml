@@ -1,0 +1,89 @@
+# tamp-beacon StatefulSet — single replica, single PVC.
+#
+# Why StatefulSet (not Deployment): the bundled Postgres datadir lives on
+# the same PVC as the beacon's app state (setup token + VAPID key). The
+# StatefulSet's stable identity + volumeClaimTemplate match that shape.
+#
+# Why replicas=1: tamp-beacon's storage layer (bundled Postgres) is
+# single-writer. If you want HA, point at an external Postgres via
+# BEACON_DB_CONNECTION_STRING and run multiple replicas behind a Service;
+# but the receiver itself isn't currently horizontally scaled in v0.1.0.
+#
+# Pair this with the Service + Ingress manifests in the same directory.
+# Adjust the storageClassName / ingress className / host names for your
+# cluster.
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tamp-beacon
+  labels:
+    app.kubernetes.io/name: tamp-beacon
+    app.kubernetes.io/version: "0.1.0"
+spec:
+  serviceName: tamp-beacon
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tamp-beacon
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tamp-beacon
+        app.kubernetes.io/version: "0.1.0"
+    spec:
+      # Bundled Postgres needs to write as uid 70 (alpine postgres user).
+      # If you front this with an external Postgres via
+      # BEACON_DB_CONNECTION_STRING, the fsGroup is still harmless.
+      securityContext:
+        fsGroup: 70
+      containers:
+        - name: beacon
+          image: ghcr.io/tamp-build/tamp-beacon:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: ASPNETCORE_URLS
+              value: "http://+:8080"
+            # Uncomment to use an external Postgres instead of the bundled one.
+            # The bundled process will not start when this is set.
+            # - name: BEACON_DB_CONNECTION_STRING
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: tamp-beacon-secrets
+            #       key: db-connection-string
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/tamp-beacon
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # storageClassName: standard   # uncomment + adjust for your cluster
+        resources:
+          requests:
+            storage: 10Gi

@@ -242,7 +242,8 @@ dotnet tamp Test
 
 ## Related
 
+- Emit-side quickstart: [`docs/observing-your-builds.md`](docs/observing-your-builds.md) — installing `Tamp.Telemetry`, env-var wiring, CI shape, Web Push opt-in
+- Deploy reference: [`deploy/`](deploy/) — docker-compose for single-host, StatefulSet + Service + Ingress for Kubernetes
 - Design sketch: [`tamp-beacon-v0.1.0.md`](https://github.com/tamp-build/tamp/blob/main/docs/sketches/tamp-beacon-v0.1.0.md) (in the Tamp repo)
 - Auth spec: TAM-214 (private YouTrack — public summary forthcoming)
 - Emission contract: [ADR 0018 — Diagnostics emission contract](https://github.com/tamp-build/tamp/blob/main/docs/adr/0018-diagnostics-emission-contract.md)
-- Wiki: **Observing-Your-Builds** (forthcoming — covers `Tamp.Telemetry` install + beacon URL config + dashboard tour)

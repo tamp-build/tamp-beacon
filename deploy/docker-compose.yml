@@ -1,0 +1,46 @@
+# Single-host deployment of tamp-beacon.
+#
+# Boots one container with bundled Postgres 17, persists everything to a
+# named volume, and binds port 8080 to the host. Suitable for:
+#   - inner-loop verification before deploying to k8s
+#   - small teams running one beacon on a single VM
+#   - homelab self-hosters
+#
+# For multi-replica deployments (or anything fronted by automatic TLS),
+# use the StatefulSet shape in ./kubernetes/ instead.
+#
+# Usage:
+#   docker compose -f deploy/docker-compose.yml up -d
+#   docker compose -f deploy/docker-compose.yml logs -f beacon     # watch for setup token
+#
+# Front this with your existing reverse proxy (Caddy, Traefik, nginx,
+# Cloudflare Tunnel) for HTTPS — tamp-beacon itself only speaks HTTP.
+
+services:
+  beacon:
+    image: ghcr.io/tamp-build/tamp-beacon:0.1.0
+    container_name: tamp-beacon
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - tamp-beacon-data:/var/lib/tamp-beacon
+    environment:
+      # Override the bundled Postgres by pointing at an external instance:
+      # BEACON_DB_CONNECTION_STRING: "Host=postgres.internal;Database=beacon;Username=beacon;Password=..."
+      ASPNETCORE_URLS: "http://+:8080"
+    healthcheck:
+      test: ["CMD", "/app/Tamp.Beacon", "--healthcheck"]
+      interval: 30s
+      timeout: 3s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  tamp-beacon-data:
+    # The single volume that holds:
+    #   - Postgres datadir (the bundled instance's pgdata)
+    #   - First-run setup token (consumed once)
+    #   - VAPID key (persists across restarts so Web Push subscriptions stay valid)
+    # Snapshot this volume to back up the whole beacon — no application-level
+    # backup tool needed.
