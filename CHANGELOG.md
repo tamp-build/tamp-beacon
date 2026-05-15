@@ -8,11 +8,17 @@ Pre-1.0 versions may break public API freely between minor versions; the `0.x` l
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-05-15
+
 ### Added
 
 - **`linux/arm64` image** alongside the existing `linux/amd64`. The published image is now a multi-arch manifest — Apple-silicon Macs, AWS Graviton nodes, and Raspberry Pi 4/5 hosts can `docker pull ghcr.io/tamp-build/tamp-beacon:<tag>` without `--platform` flags. CI builds via cross-compiled `dotnet publish` (native, no emulation) plus QEMU for the Dockerfile's `apk add` / `chmod` steps.
 - **Data-protection key-ring encryption at rest** (TAM-219). New `Beacon:Auth:KeyProtection` config section with three modes: `None` (lab default — boots with a loud startup WARNING), `SecretFile` (32-byte AES-256-GCM key loaded from disk; ship a Kubernetes Secret, point the beacon at it), and `X509` (PFX-based, framework-provided `CertificateXmlEncryptor`). Adopter-hosted production deploys no longer have to accept session-forgery risk from a stolen PVC snapshot. Wiring deferred via `IConfigureOptions<KeyManagementOptions>` so late-binding config providers (env vars, layered appsettings) win over the eager registration-time defaults.
 - **Production checklist** (`docs/production-checklist.md`) — top item is the key-ring encryption setup; also covers HTTPS, external Postgres decision, PVC access discipline, recovery handle, and image-tag pinning.
+
+### Fixed
+
+- Data-protection wiring in `AddDataProtection` was reading `AuthOptions` via eager `config.Bind(...)` at service-registration time, which locked in stale defaults whenever a late-binding config provider (env vars, layered appsettings, `WebApplicationFactory` in-memory overlay) wanted to override. Refactored to `IConfigureOptions<KeyManagementOptions>` so binding happens at resolution time. Latent before TAM-219; surfaced while landing the encryption modes.
 
 ## [0.1.0] - 2026-05-15
 
@@ -38,5 +44,6 @@ First public release. Single-image OTLP receiver + dashboard for Tamp builds, sh
 - `OTLP/gRPC`, retention policies, anomaly detection, webhook integrations, multi-tenant separation beyond projects, cosign signing, and SLSA provenance attestations are deferred to 0.2+.
 - The original v0.1.0 plan included a `Tamp.Beacon.Sdk` companion NuGet (typed C# client); it was cut during the v0.1 sweep — `Tamp.Telemetry` is the only NuGet adopters install.
 
-[Unreleased]: https://github.com/tamp-build/tamp-beacon/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/tamp-build/tamp-beacon/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/tamp-build/tamp-beacon/releases/tag/v0.1.1
 [0.1.0]: https://github.com/tamp-build/tamp-beacon/releases/tag/v0.1.0
