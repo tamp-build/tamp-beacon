@@ -10,21 +10,24 @@ Thanks for considering a contribution. `tamp-beacon` is the receiver and dashboa
 
 ## Getting set up
 
-`tamp-beacon` targets .NET 8, 9, and 10 — the host assembly multi-targets all three (matches Tamp's [target-framework strategy](https://github.com/tamp-build/tamp/blob/main/docs/adr/0015-target-framework-strategy.md)). You need all three SDKs installed locally to run the full test matrix.
+`tamp-beacon` targets **`net10.0`** — single TFM, since the receiver ships only as a container image (the framework-level Tamp satellites multi-target net8/9/10, but `tamp-beacon` itself doesn't need to). You need the .NET 10 SDK locally; you'll also want Node 20 + Yarn 4 for the SPA, and Docker for the Testcontainers-Postgres-backed integration tests.
 
 ```bash
-# macOS — Microsoft pkg installers via Homebrew
-brew install --cask dotnet-sdk@8 dotnet-sdk@9 dotnet-sdk
+# macOS
+brew install --cask dotnet-sdk
+brew install node yarn docker
 
-# Linux — Microsoft package feed (see https://learn.microsoft.com/dotnet/core/install/linux)
-# Windows — winget install Microsoft.DotNet.SDK.8 / .9 / .10
+# Linux — Microsoft package feed: https://learn.microsoft.com/dotnet/core/install/linux
+# Windows — winget install Microsoft.DotNet.SDK.10
 ```
 
 Verify:
 
 ```bash
-dotnet --list-sdks
-# 8.0.x, 9.0.x, 10.0.x
+dotnet --list-sdks   # 10.0.x
+node --version       # v20.x
+yarn --version       # 4.x
+docker info          # daemon reachable
 ```
 
 Then:
@@ -91,4 +94,4 @@ See [`SECURITY.md`](SECURITY.md). Don't open public issues for vulnerabilities.
 
 ## Recognition
 
-Substantial contributors are added to `MAINTAINERS.md` per [ADR 0009 §2.2](docs/adr/0009-governance-and-namespace-policy.md). The bar is sustained engagement and trust, not contribution count.
+Substantial contributors are added to `MAINTAINERS.md` per [Tamp's governance ADR (0009)](https://github.com/tamp-build/tamp/blob/main/docs/adr/0009-governance-and-namespace-policy.md). The bar is sustained engagement and trust, not contribution count.
