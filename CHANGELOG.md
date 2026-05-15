@@ -8,23 +8,29 @@ Pre-1.0 versions may break public API freely between minor versions; the `0.x` l
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-05-12
+## [0.1.0] - 2026-05-15
+
+First public release. Single-image OTLP receiver + dashboard for Tamp builds, shipped as `ghcr.io/tamp-build/tamp-beacon:0.1.0` (`linux/amd64`).
 
 ### Added
 
-- Single-image OTel receiver + dashboard for Tamp builds (`ghcr.io/tamp-build/tamp-beacon:0.1.0`).
-- **OTLP/HTTP-JSON receiver** on `/v1/traces` and `/v1/metrics`. Validates the source-name prefix (`Tamp.Build*`); non-Tamp telemetry is rejected with HTTP 422.
-- **SQLite storage** at `/var/lib/tamp-beacon/db.sqlite` with WAL mode. Schema covers builds, targets, commands, events, and Web Push subscriptions. Indexed columns for the hot dashboard queries; `raw_tags` JSON column captures every ADR-0018 tag without a migration on the next tag addition.
-- **HTTP/JSON query API** under `/api/*` — list/detail builds with monotonic `seq` cursor for delta polling, slowest + flakiest target rankings, project + area pivots, push-subscription registration, `/healthz` with VAPID public key.
-- **React + Vite + Tailwind + shadcn/ui SPA** served from `wwwroot/`. Pages: Builds, Build detail, Targets, Projects, Alerts. React Query polling on a 5s default cadence.
-- **Web Push** notifications for build failures. VAPID keys auto-generated on first boot and persisted under `/var/lib/tamp-beacon/vapid.key`. Coalesced by project + target + 5-minute window so a flaky failure loop doesn't spam.
-- **Tamp.Beacon.Sdk** companion NuGet package — typed C# client over the JSON API (`net8.0;net9.0;net10.0`).
-- **Dogfooded Build.cs** using `Tamp.Yarn.V4`, `Tamp.Vite.V5`, `Tamp.NetCli.V10`, `Tamp.Docker.V27`, `Tamp.Http`. Multi-arch image build (linux/amd64, linux/arm64) via Docker buildx; smoke-tests the resulting image against `/healthz` + a sample OTLP payload.
+- **OTLP/HTTP ingest** on `/v1/traces` and `/v1/metrics` — protobuf primary, JSON tolerant. Source-name prefix gated (`Tamp.Build*`); non-Tamp telemetry rejected with HTTP 422. Per-project bearer tokens (`tbk_*`) gate every POST and advance a `last_used_at` watermark on each ingest.
+- **Bundled Postgres 17** under tini supervision — the container is self-contained. Set `BEACON_DB_CONNECTION_STRING` to an external instance and the bundled process is suppressed. Persists to a single PVC mount at `/var/lib/tamp-beacon` (Postgres datadir + setup token + VAPID key).
+- **Auth from day one** (TAM-214) — first-run setup token printed to stdout, sysadmin bootstrap via `POST /setup`, GitHub OAuth federated login with org-allowlist enforcement, username/password break-glass, project-scoped RBAC (Admin / Viewer) with SonarQube-style 404-on-non-membership semantics, min-one-admin invariants enforced at the service layer, sysadmin promotion + disable.
+- **Project → BuildConfig → Build hierarchy** (TAM-215) — each project owns N build configs (`pr-validation`, `main-ci`, `nightly`, …); CI tags drive auto-create on first ingest. The dashboard's project screen lists configs with last-build / total-builds / CPU-time rollups; the config detail screen carries the slowest/flakiest target rankings.
+- **Cross-batch trace_id reconcile** (TAM-218) — Target spans arriving in OTLP batches *before* their parent Build span no longer scatter across synthetic Build rows. The receiver upserts on `(project_id, trace_id)` and overlays late-arriving Build-span attrs onto the same row, so one CI run = one Build row regardless of batch ordering.
+- **React + Vite + Tailwind + shadcn/ui SPA** served from `wwwroot/`. Pages: setup wizard, login, projects index, project detail (configs grid), config detail (recent builds + rollups), build detail (targets / commands / events tabs), project settings (notifications + members + tokens). React Query polling on a 5s cadence; monotonic `seq` cursor for delta refresh.
+- **Web Push failure alerts** — VAPID keys auto-generate on first boot and persist to the PVC. Project members opt in per-browser via the project settings screen. A background worker fans out one notification per (project, target, coalesce-window) so a flake loop doesn't spam. Browser-specific subscription failures (Brave's default block, denied permission, missing keys) map to actionable error sentences in the UI.
+- **Read API** under `/api/*` — list/detail builds with `since_seq` cursor, slowest + flakiest target rankings (per project and per config), members and tokens CRUD, sysadmin user management.
+- **Admin recovery CLI** — `tamp-beacon admin recover --username <name>` prints a one-shot reset token to stdout; same trust model as the setup token (pod-log readership).
+- **Dogfooded `Build.cs`** — Yarn install + build, copy SPA into wwwroot, .NET restore/build/test, self-contained publish for `linux-musl-x64`, Docker buildx, container smoke probe against `/healthz`. Tamp's own ActivitySources are wired via `Tamp.Telemetry.FromEnvironment()`, so every local + CI build of tamp-beacon emits its own spans to the lab beacon.
+- **CI/CD** — `ci.yml` runs the whole pipeline through `dotnet tamp Test` (Restore → YarnInstall → FrontendBuild → CopyWwwroot → Compile → Test, each emitting its own target span). `release.yml` fires on `v*` tags and pushes `:{version}`, `:{minor}`, `:latest` (non-prerelease only) to ghcr.io. `main-push.yml` fires on CI-green main commits and pushes `:main`.
 
 ### Notes
 
-- Authless v0.1.0 — designed for trusted-network deployment behind a reverse proxy or Cloudflare tunnel. Token auth reserved for 0.2.0.
-- OTLP/gRPC, multi-tenant separation, retention policies, anomaly detection, and webhook integrations are deferred to 0.2.0+.
+- `linux/arm64` image is deferred to v0.2. Apple-silicon users can `docker pull --platform linux/amd64` and run under Rosetta.
+- `OTLP/gRPC`, retention policies, anomaly detection, webhook integrations, multi-tenant separation beyond projects, cosign signing, and SLSA provenance attestations are deferred to 0.2+.
+- The original v0.1.0 plan included a `Tamp.Beacon.Sdk` companion NuGet (typed C# client); it was cut during the v0.1 sweep — `Tamp.Telemetry` is the only NuGet adopters install.
 
 [Unreleased]: https://github.com/tamp-build/tamp-beacon/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/tamp-build/tamp-beacon/releases/tag/v0.1.0

@@ -6,16 +6,51 @@ Tamp builds emit a pinned diagnostics contract (ADR 0018) — three `ActivitySou
 
 | | |
 |---|---|
-| Image | `ghcr.io/tamp-build/tamp-beacon:0.1.0` (unreleased — slice 1 in progress) |
+| Image | `ghcr.io/tamp-build/tamp-beacon:0.1.0` (also `:0.1`, `:latest`, and `:main` for trunk) |
+| Platform | `linux/amd64` (arm64 deferred to v0.2) |
 | Port | `8080` (OTLP/HTTP receiver + dashboard + admin UI on the same port) |
 | Volume | `/var/lib/tamp-beacon` (Postgres datadir + setup token + VAPID key) |
-| Status | preview — slice-1 in progress, see "Build slices" below |
+| Status | v0.1.0 shipped 2026-05-15 — feature-complete receiver + dashboard |
 
-## Slice-6 status (you are here)
+## Quickstart — pull and run the published image
 
-This branch ships **slices 1–6** — feature-complete v0.1.0 surface. Failure alerts via Web Push: VAPID keys auto-generate on first boot and persist to the PVC, project members opt in per-browser, and a background worker fans out one notification per (project, target) coalesce window. The SPA gains a notifications card on each project, plus slowest/flakiest target rollups.
+```bash
+docker run -d --name tamp-beacon \
+  -p 8080:8080 \
+  -v tamp-beacon-data:/var/lib/tamp-beacon \
+  ghcr.io/tamp-build/tamp-beacon:0.1.0
+```
 
-### Running locally
+The container boots Postgres on its Unix socket, runs migrations, then exposes the receiver + dashboard on `:8080`. Watch stdout for the first-run setup token:
+
+```
+================================================================
+ tamp-beacon — first-run setup token
+----------------------------------------------------------------
+ token:    <token>
+================================================================
+```
+
+Consume it to mint the first sysadmin, then sign in at `http://localhost:8080`:
+
+```bash
+curl -sS -X POST http://localhost:8080/setup \
+  -H 'content-type: application/json' \
+  -d '{"token":"<token>","username":"admin","password":"correct-horse-battery-staple"}'
+```
+
+### Image tag scheme
+
+| Tag | Lifecycle |
+|---|---|
+| `:0.1.0` | Immutable — published once on the `v0.1.0` tag, never overwritten |
+| `:0.1` | Floats forward on each patch in the 0.1.x line |
+| `:latest` | Floats forward on every non-prerelease tag |
+| `:main` | Trunk image, pushed after every CI-green commit on `main` |
+
+Adopters running production deploys should pin `:0.1.0`. Tracking `:0.1` or `:latest` keeps you on patches automatically.
+
+### Running from source (contributor inner loop)
 
 ```bash
 # 1. Bring up Postgres
@@ -27,24 +62,9 @@ docker run -d --name beacon-pg -p 5432:5432 \
 (cd web && yarn install && yarn build)
 rm -rf src/Tamp.Beacon/wwwroot && cp -r web/dist src/Tamp.Beacon/wwwroot
 
-# 3. Run the beacon (binds :8080, SPA shell at /, API at /api/* and /v1/*)
+# 3. Run the beacon — same setup-token + /setup flow as the container path above
 BEACON_DB_CONNECTION_STRING="Host=localhost;Username=beacon;Password=beacon;Database=beacon" \
   dotnet run --project src/Tamp.Beacon
-
-# 4. Watch stdout for the first-run setup token banner:
-#
-#    ================================================================
-#     tamp-beacon — first-run setup token
-#    ----------------------------------------------------------------
-#     token:    <token>
-#    ================================================================
-#
-# 5. Consume the token to mint the first admin
-curl -sS -X POST http://localhost:8080/setup \
-  -H 'content-type: application/json' \
-  -d '{"token":"<token>","username":"admin","password":"correct-horse-battery-staple"}'
-
-# 6. Open http://localhost:8080 — sign in with admin / your password
 ```
 
 ### Frontend inner loop
@@ -54,7 +74,7 @@ curl -sS -X POST http://localhost:8080/setup \
 (cd web && yarn dev)   # SPA on :5173, proxies API to :8080
 ```
 
-### Endpoint surface (slices 1 + 2)
+### Endpoint surface
 
 ```
 GET  /healthz                → 200 { status: "ok" }
@@ -83,6 +103,15 @@ DELETE /api/projects/{slug}/members/{id}      → 204                           
 GET    /api/projects/{slug}/tokens            → 200 { tokens: [...] }         | 403 | 404
 POST   /api/projects/{slug}/tokens            → 201 { token: "<plaintext>", ... }  (shown ONCE)
 DELETE /api/projects/{slug}/tokens/{id}       → 204
+
+GET    /api/projects/{slug}/configs                          → 200 { configs: [...] }   (per-config rollups)
+POST   /api/projects/{slug}/configs                          → 201
+GET    /api/projects/{slug}/configs/{configSlug}             → 200 { config }           | 404
+PATCH  /api/projects/{slug}/configs/{configSlug}             → 200                      | 403 | 404
+DELETE /api/projects/{slug}/configs/{configSlug}             → 204 (soft-archive)
+GET    /api/projects/{slug}/configs/{configSlug}/builds      → 200 { builds, next_seq }
+GET    /api/projects/{slug}/configs/{configSlug}/targets/slowest   → 200 { targets: [...] }
+GET    /api/projects/{slug}/configs/{configSlug}/targets/flakiest  → 200 { targets: [...] }
 
 GET    /api/admin/users                       → 200 { users: [...] }          | 403
 POST   /api/admin/users/{u}/promote           → 200                           | 403 | 404
@@ -141,7 +170,7 @@ curl -X POST https://beacon.example.com/admin/recover \
   -d '{"username":"scott","token":"<token>","new_password":"<new>"}'
 ```
 
-## Build slices
+## What's in v0.1.0
 
 | Slice | Scope | Status |
 |---|---|---|
@@ -152,7 +181,10 @@ curl -X POST https://beacon.example.com/admin/recover \
 | 5a | Read API surface (builds list/detail + slowest/flakiest rollups) | shipped |
 | 5b | SPA dashboard wired against the slice-5a API | shipped |
 | 6 | Web Push failure alerts + slowest/flakiest UI cards | shipped |
-| 7 | Docs + on-ramp polish + 1.0 cut | pending |
+| TAM-215 | BuildConfig layer (Project → BuildConfig → Build) | shipped |
+| TAM-218 | Cross-batch trace_id reconcile (one build row per CI run) | shipped |
+
+Deferred to a future release: arm64 image (`linux/arm64`), cosign signing, SLSA provenance, deeper docs (filed as `TAM-docs` backlog).
 
 ## Auth model (TAM-214)
 
@@ -166,29 +198,29 @@ Auth is enabled from line one — there is no "authless mode."
 
 See the TAM-214 spec in the Tamp YouTrack for the complete threat model.
 
-## Architecture (target — slice 1 ships the boxes marked ◯)
+## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │ Single container — ghcr.io/tamp-build/tamp-beacon:0.1.0          │
 │                                                                  │
-│  ◯ tini (PID 1) supervises:                                      │
-│     ◯ postgres 17    (Unix-socket trust auth in /var/lib/...)    │
-│     ◯ Tamp.Beacon    (.NET 10 / Kestrel on :8080)                │
+│  tini (PID 1) supervises:                                        │
+│     postgres 17     (Unix-socket trust auth in /var/lib/...)     │
+│     Tamp.Beacon     (.NET 10 / Kestrel on :8080)                 │
 │                                                                  │
-│  ◯ ASP.NET Core 10 host                                          │
-│     ◯ /healthz, /readyz, /setup, /setup/status                   │
-│     △ /api/* (admin + project CRUD — slice 3)                    │
-│     △ /v1/traces, /v1/metrics (OTLP/HTTP — slice 4)              │
-│     △ /  (dashboard SPA — slice 5)                               │
-│     △ /api/push/subscribe (Web Push — slice 6)                   │
+│  ASP.NET Core 10 host                                            │
+│     /healthz, /readyz, /setup, /setup/status                     │
+│     /api/* (admin + project + config CRUD, builds, rollups)      │
+│     /v1/traces, /v1/metrics (OTLP/HTTP — protobuf + JSON)        │
+│     /  (React SPA: builds, build detail, slowest/flakiest)       │
+│     /api/push/subscribe (Web Push failure alerts)                │
 │                                                                  │
-│  ◯ Postgres schema (EF Core)                                     │
-│     ◯ auth: users, projects, project_members, project_tokens,    │
-│            identity_providers, identity_provider_links,          │
-│            setup_state, auth_audit_log                           │
-│     ◯ telemetry: builds, targets, commands, events,              │
-│            push_subscriptions (mapped; ingest in slice 4)        │
+│  Postgres schema (EF Core)                                       │
+│     auth: users, projects, project_members, project_tokens,      │
+│           identity_providers, identity_provider_links,           │
+│           setup_state, auth_audit_log                            │
+│     telemetry: build_configs, builds, targets, commands, events, │
+│                push_subscriptions                                │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -196,13 +228,16 @@ External-Postgres mode: set `BEACON_DB_CONNECTION_STRING` and the bundled Postgr
 
 ## Building locally
 
-This repo dogfoods Tamp end-to-end. The `Build.cs` orchestrates Yarn install + Vite build, copies the SPA into `wwwroot/`, builds the .NET host, runs tests, publishes, builds the multi-arch Docker image, and smoke-tests the resulting container.
+This repo dogfoods Tamp end-to-end. The `Build.cs` orchestrates Yarn install + Vite build, copies the SPA into `wwwroot/`, builds the .NET host, runs tests, publishes, builds the Docker image, and smoke-tests the resulting container. CI drives the same `Build.cs` through `dotnet tamp Test`, so every CI run emits its own build span to the lab beacon — the project is its own first adopter.
 
 ```bash
-# Slice-1 inner loop:
 dotnet build Tamp.Beacon.slnx
 dotnet test tests/Tamp.Beacon.Tests
 dotnet run --project src/Tamp.Beacon
+
+# Full Tamp dogfood — runs the same target graph CI runs.
+dotnet tool install --global dotnet-tamp --version 1.0.0
+dotnet tamp Test
 ```
 
 ## Related
