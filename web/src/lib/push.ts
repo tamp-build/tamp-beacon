@@ -91,3 +91,56 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
   for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
   return out;
 }
+
+/**
+ * Map a thrown push-subscription error to a user-actionable sentence. Most
+ * `pushManager.subscribe()` failures bubble up as DOMException instances —
+ * their `.name` is more reliable than their message (which varies by
+ * browser + locale). When the cause is configurable in the browser (Brave's
+ * default-off Google push services, denied notification permission), we
+ * point the user at the toggle. For truly opaque cases we fall back to the
+ * raw exception text.
+ */
+export function formatPushError(err: unknown): string {
+  if (typeof err === 'object' && err !== null) {
+    const name = (err as { name?: string }).name;
+    switch (name) {
+      case 'AbortError':
+        // Most common cause: Brave (and forks) ship with
+        // "Use Google services for push messaging" OFF. Chromium without
+        // the FCM bridge means subscribe() can never reach a push service.
+        // Same surface error fires on flaky network / push service outage
+        // — frame the message as a likely cause + a thing-to-check.
+        return (
+          'The browser couldn\'t register with its push service. ' +
+          'If you\'re on Brave or a Brave fork, enable ' +
+          '"Use Google services for push messaging" in ' +
+          'brave://settings/privacy (a Brave default-off privacy setting). ' +
+          'Chrome / Edge / Firefox work without any toggle.'
+        );
+      case 'NotAllowedError':
+        return (
+          'Notification permission was denied. Unblock the site under ' +
+          'the address-bar lock icon, then click Enable again.'
+        );
+      case 'NotSupportedError':
+        return (
+          'This browser does not support Web Push. Use a recent Chrome, ' +
+          'Edge, Firefox, or Brave (with Google push services enabled).'
+        );
+      case 'InvalidStateError':
+        return (
+          'An old subscription is still attached to this browser. ' +
+          'Try Disable, then Enable again.'
+        );
+      case 'SecurityError':
+        return (
+          'Web Push requires HTTPS (or localhost). The current origin ' +
+          'isn\'t a secure context.'
+        );
+    }
+    const msg = (err as { message?: string }).message;
+    if (typeof msg === 'string' && msg.length > 0) return msg;
+  }
+  return String(err);
+}

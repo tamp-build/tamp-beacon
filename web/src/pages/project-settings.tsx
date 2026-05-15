@@ -5,6 +5,7 @@ import { Bell, BellOff, Copy, KeyRound, ShieldOff, Trash, UserPlus } from 'lucid
 import { api, ApiError, type MintedToken } from '@/lib/api';
 import {
   detectPushStatus,
+  formatPushError,
   subscribeToProject,
   unsubscribeFromProject,
   type PushStatus,
@@ -78,7 +79,7 @@ function NotificationsCard({ slug }: { slug: string }) {
     try {
       setStatus(await subscribeToProject(slug));
     } catch (e) {
-      setError(extractError(e));
+      setError(formatPushError(e));
     } finally {
       setBusy(false);
     }
@@ -89,7 +90,7 @@ function NotificationsCard({ slug }: { slug: string }) {
     try {
       setStatus(await unsubscribeFromProject(slug));
     } catch (e) {
-      setError(extractError(e));
+      setError(formatPushError(e));
     } finally {
       setBusy(false);
     }
