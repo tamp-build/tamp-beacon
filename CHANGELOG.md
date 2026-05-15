@@ -10,6 +10,7 @@ Pre-1.0 versions may break public API freely between minor versions; the `0.x` l
 
 ### Added
 
+- **`linux/arm64` image** alongside the existing `linux/amd64`. The published image is now a multi-arch manifest — Apple-silicon Macs, AWS Graviton nodes, and Raspberry Pi 4/5 hosts can `docker pull ghcr.io/tamp-build/tamp-beacon:<tag>` without `--platform` flags. CI builds via cross-compiled `dotnet publish` (native, no emulation) plus QEMU for the Dockerfile's `apk add` / `chmod` steps.
 - **Data-protection key-ring encryption at rest** (TAM-219). New `Beacon:Auth:KeyProtection` config section with three modes: `None` (lab default — boots with a loud startup WARNING), `SecretFile` (32-byte AES-256-GCM key loaded from disk; ship a Kubernetes Secret, point the beacon at it), and `X509` (PFX-based, framework-provided `CertificateXmlEncryptor`). Adopter-hosted production deploys no longer have to accept session-forgery risk from a stolen PVC snapshot. Wiring deferred via `IConfigureOptions<KeyManagementOptions>` so late-binding config providers (env vars, layered appsettings) win over the eager registration-time defaults.
 - **Production checklist** (`docs/production-checklist.md`) — top item is the key-ring encryption setup; also covers HTTPS, external Postgres decision, PVC access discipline, recovery handle, and image-tag pinning.
 

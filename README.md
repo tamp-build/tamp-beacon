@@ -7,7 +7,7 @@ Tamp builds emit a pinned diagnostics contract (ADR 0018) — three `ActivitySou
 | | |
 |---|---|
 | Image | `ghcr.io/tamp-build/tamp-beacon:0.1.0` (also `:0.1`, `:latest`, and `:main` for trunk) |
-| Platform | `linux/amd64` (arm64 deferred to v0.2) |
+| Platform | `linux/amd64` + `linux/arm64` (multi-arch manifest — Apple silicon, Graviton, Raspberry Pi 4/5 all Just Work) |
 | Port | `8080` (OTLP/HTTP receiver + dashboard + admin UI on the same port) |
 | Volume | `/var/lib/tamp-beacon` (Postgres datadir + setup token + VAPID key) |
 | Status | v0.1.0 shipped 2026-05-15 — feature-complete receiver + dashboard |
@@ -184,7 +184,7 @@ curl -X POST https://beacon.example.com/admin/recover \
 | TAM-215 | BuildConfig layer (Project → BuildConfig → Build) | shipped |
 | TAM-218 | Cross-batch trace_id reconcile (one build row per CI run) | shipped |
 
-Deferred to a future release: arm64 image (`linux/arm64`), cosign signing, SLSA provenance, deeper docs (filed as `TAM-docs` backlog).
+Deferred to a future release: cosign signing, SLSA provenance.
 
 ## Auth model (TAM-214)
 

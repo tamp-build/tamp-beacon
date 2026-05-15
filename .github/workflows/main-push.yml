@@ -74,16 +74,32 @@ jobs:
           mkdir -p src/Tamp.Beacon/wwwroot
           cp -R web/dist/. src/Tamp.Beacon/wwwroot/
 
-      - name: dotnet publish (linux-musl-x64, self-contained)
+      - name: dotnet publish (linux-musl-x64 → publish/amd64)
         run: |
-          mkdir -p publish
+          mkdir -p publish/amd64
           dotnet publish src/Tamp.Beacon/Tamp.Beacon.csproj \
             -c Release \
             -r linux-musl-x64 \
             --self-contained true \
             -p:PublishSingleFile=false \
             -p:PublishTrimmed=false \
-            -o publish/
+            -o publish/amd64/
+
+      - name: dotnet publish (linux-musl-arm64 → publish/arm64)
+        run: |
+          mkdir -p publish/arm64
+          dotnet publish src/Tamp.Beacon/Tamp.Beacon.csproj \
+            -c Release \
+            -r linux-musl-arm64 \
+            --self-contained true \
+            -p:PublishSingleFile=false \
+            -p:PublishTrimmed=false \
+            -o publish/arm64/
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
 
       - name: Setup Docker buildx
         uses: docker/setup-buildx-action@v3
@@ -95,12 +111,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build + push :main
+      - name: Build + push :main (multi-arch)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/tamp-beacon:main
           labels: |

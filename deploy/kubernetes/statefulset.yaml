@@ -9,6 +9,9 @@
 # BEACON_DB_CONNECTION_STRING and run multiple replicas behind a Service;
 # but the receiver itself isn't currently horizontally scaled in v0.1.0.
 #
+# The image is a multi-arch manifest (linux/amd64 + linux/arm64) — no
+# nodeSelector required, Kubernetes resolves the right arch per node.
+#
 # Pair this with the Service + Ingress manifests in the same directory.
 # Adjust the storageClassName / ingress className / host names for your
 # cluster.

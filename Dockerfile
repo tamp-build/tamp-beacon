@@ -3,9 +3,11 @@
 # external Postgres set BEACON_DB_CONNECTION_STRING and the bundled
 # instance never starts.
 #
-# Build context expects ./publish/ to contain the self-contained
-# linux-x64 / linux-arm64 publish output for Tamp.Beacon (produced by
-# `tamp Publish` running `dotnet publish -r linux-<rid> --self-contained`).
+# Build context expects ./publish/${TARGETARCH}/ to contain the self-
+# contained publish output for Tamp.Beacon, one subdirectory per arch.
+# CI publishes linux-musl-x64 to ./publish/amd64/ and linux-musl-arm64 to
+# ./publish/arm64/; buildx fans out per-platform builds and pulls the
+# matching binary set in each.
 #
 # Process model: tini as PID 1, supervising:
 #   * postgres (only when BEACON_DB_CONNECTION_STRING is not externally set)
@@ -24,8 +26,13 @@ RUN apk add --no-cache \
 
 WORKDIR /app
 
+# TARGETARCH is automatically set by docker buildx for each platform in
+# the `--platform=linux/amd64,linux/arm64` build matrix (`amd64` or
+# `arm64`). The publish/ subtree is laid out to match.
+ARG TARGETARCH
+
 # Self-contained .NET publish output (no shared framework required).
-COPY publish/ /app/
+COPY publish/${TARGETARCH}/ /app/
 
 # Bundled-Postgres entrypoint and per-process supervisors.
 COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
