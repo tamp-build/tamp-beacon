@@ -70,21 +70,6 @@ class Build : TampBuild
         Console.WriteLine($"  ImageTag:      {ImageTag}");
     });
 
-    // TAM-230 — temporary smoke target that always fails. Used to verify the
-    // Tamp.Telegram reporter wiring end-to-end: run with TELEGRAM_BOT_TOKEN
-    // + TELEGRAM_CHAT_ID set and confirm the @Tampbuild_bot chat receives a
-    // failure notification (target name + reason + stdout tail). Delete
-    // before the next merge; this is not a production target.
-    Target TestTelegramFailure => _ => _
-        .Executes((Action)(() =>
-        {
-            Console.WriteLine("about to fail intentionally (TAM-230 smoke for Tamp.Telegram)");
-            Console.WriteLine("this line should show up in the Telegram message body");
-            for (var i = 1; i <= 5; i++)
-                Console.WriteLine($"  context line {i}");
-            throw new InvalidOperationException("intentional failure to exercise Tamp.Telegram BuildReporter");
-        }));
-
     Target Clean => _ => _.Executes(() => CleanArtifacts());
 
     Target Restore => _ => _
