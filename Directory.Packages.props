@@ -19,13 +19,14 @@
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
   </ItemGroup>
 
-  <ItemGroup Label="Tamp packages — pinned to the 1.9.0 wave">
-    <PackageVersion Include="Tamp.Core" Version="1.9.0" />
+  <ItemGroup Label="Tamp packages — pinned to the 1.10.0 wave (TAM-230 BuildReporter)">
+    <PackageVersion Include="Tamp.Core" Version="1.10.0" />
     <PackageVersion Include="Tamp.NetCli.V10" Version="1.5.0" />
     <PackageVersion Include="Tamp.Yarn.V4" Version="0.1.1" />
     <PackageVersion Include="Tamp.Vite.V5" Version="0.1.1" />
     <PackageVersion Include="Tamp.Docker.V27" Version="0.3.0" />
     <PackageVersion Include="Tamp.Http" Version="0.1.1" />
+    <PackageVersion Include="Tamp.Telegram" Version="0.1.0" />
     <PackageVersion Include="Tamp.Telemetry" Version="0.1.2" />
   </ItemGroup>
 

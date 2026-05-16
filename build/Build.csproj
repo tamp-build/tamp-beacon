@@ -15,6 +15,7 @@
     <PackageReference Include="Tamp.Yarn.V4" />
     <PackageReference Include="Tamp.Docker.V27" />
     <PackageReference Include="Tamp.Http" />
+    <PackageReference Include="Tamp.Telegram" />
     <PackageReference Include="Tamp.Telemetry" />
   </ItemGroup>
 

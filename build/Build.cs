@@ -11,6 +11,7 @@ using Tamp.NetCli.V10;
 using Tamp.Yarn.V4;
 using Tamp.Docker.V27;
 using Tamp.Http;
+using Tamp.Telegram;
 using Tamp.Telemetry;
 
 /// <summary>
@@ -47,6 +48,14 @@ class Build : TampBuild
 
     [FromPath("yarn")] readonly Tool YarnTool = null!;
 
+    // TAM-230 — Telegram failure-notify reporter. Reads TELEGRAM_BOT_TOKEN /
+    // TELEGRAM_CHAT_ID / TELEGRAM_BUILD_LABEL env vars; returns null when
+    // any required var is missing, and the framework silently skips null-
+    // valued reporters. Local devs run without env vars set → no Telegram
+    // pings; CI/lab/me set them → red builds ping the @Tampbuild_bot chat.
+    [BuildReporter] readonly IBuildReporter? TelegramNotify =
+        TelegramBuildReporter.FromEnvironment();
+
     AbsolutePath Artifacts => RootDirectory / "artifacts";
     AbsolutePath WebDir => RootDirectory / "web";
     AbsolutePath WwwRoot => RootDirectory / "src" / "Tamp.Beacon" / "wwwroot";
@@ -60,6 +69,21 @@ class Build : TampBuild
         Console.WriteLine($"  Configuration: {Configuration}");
         Console.WriteLine($"  ImageTag:      {ImageTag}");
     });
+
+    // TAM-230 — temporary smoke target that always fails. Used to verify the
+    // Tamp.Telegram reporter wiring end-to-end: run with TELEGRAM_BOT_TOKEN
+    // + TELEGRAM_CHAT_ID set and confirm the @Tampbuild_bot chat receives a
+    // failure notification (target name + reason + stdout tail). Delete
+    // before the next merge; this is not a production target.
+    Target TestTelegramFailure => _ => _
+        .Executes((Action)(() =>
+        {
+            Console.WriteLine("about to fail intentionally (TAM-230 smoke for Tamp.Telegram)");
+            Console.WriteLine("this line should show up in the Telegram message body");
+            for (var i = 1; i <= 5; i++)
+                Console.WriteLine($"  context line {i}");
+            throw new InvalidOperationException("intentional failure to exercise Tamp.Telegram BuildReporter");
+        }));
 
     Target Clean => _ => _.Executes(() => CleanArtifacts());
 
