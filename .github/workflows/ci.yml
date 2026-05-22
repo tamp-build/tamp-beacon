@@ -53,7 +53,7 @@ jobs:
       - name: Setup Node.js (for yarn build of the SPA)
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Enable Yarn (Berry)
         run: corepack enable && corepack prepare yarn@4.5.0 --activate
