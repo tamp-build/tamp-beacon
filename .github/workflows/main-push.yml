@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - name: Checkout the commit CI passed on
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # Pin to the exact SHA CI greenlit, not whatever HEAD is at the
           # time this workflow fires — protects against a fast follow-up
@@ -39,7 +39,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install supported .NET SDKs
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: |
             8.0.x
@@ -55,7 +55,7 @@ jobs:
         run: corepack enable && corepack prepare yarn@4.5.0 --activate
 
       - name: NuGet cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props') }}
