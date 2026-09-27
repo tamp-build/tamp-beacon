@@ -8,6 +8,8 @@ Pre-1.0 versions may break public API freely between minor versions; the `0.x` l
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-09-27
+
 - Package now ships XML documentation files (`.xml`) alongside the assembly, so consumers get IntelliSense and API docs. (Mirrors [tamp-build/tamp#3](https://github.com/tamp-build/tamp/pull/50).)
 
 ## [0.1.1] - 2026-05-15
