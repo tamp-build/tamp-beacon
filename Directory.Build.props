@@ -34,7 +34,7 @@
   </PropertyGroup>
 
   <PropertyGroup Label="Tamp central version (single source of truth — bump before tagging a release)">
-    <Version>0.1.0</Version>
+    <Version>0.1.2</Version>
   </PropertyGroup>
 
 </Project>
