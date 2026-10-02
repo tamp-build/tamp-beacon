@@ -1,0 +1,68 @@
+name: Nightly
+
+# Nightly lane: the full SonarQube Cloud scan (C#, with OpenCover coverage). The scan drives the
+# Tamp build, which builds the SPA (CopyWwwroot → FrontendBuild) before the .NET build, so Node +
+# Yarn are provisioned alongside JDK + .NET. Fast build/test + PR checks live in ci.yml.
+on:
+  schedule:
+    # 07:00 UTC daily.
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sonar:
+    name: SonarCloud scan
+    runs-on: ubuntu-latest
+    env:
+      DOTNET_NOLOGO: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+      TampCoreMode: package
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # Full history so SonarCloud can attribute new code / blame.
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Setup Node.js (for the SPA build)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable Yarn (Berry)
+        run: corepack enable && corepack prepare yarn@4.5.0 --activate
+
+      - name: NuGet cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Install SonarScanner for .NET
+        run: |
+          dotnet tool install --global dotnet-sonarscanner --version 10.4.1
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      # SonarBegin -> Compile (SPA + .NET) -> Test (OpenCover coverage) -> SonarEnd.
+      - name: SonarCloud scan
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: dotnet run --project build -- Sonar
