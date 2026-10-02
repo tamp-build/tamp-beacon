@@ -13,6 +13,7 @@ using Tamp.Docker.V27;
 using Tamp.Http;
 using Tamp.Telegram;
 using Tamp.Telemetry;
+using Tamp.SonarScanner.V10;
 
 /// <summary>
 /// tamp-beacon's dogfooded build pipeline. Uses Tamp's own satellites end-to-end:
@@ -60,7 +61,31 @@ class Build : TampBuild
     AbsolutePath WebDir => RootDirectory / "web";
     AbsolutePath WwwRoot => RootDirectory / "src" / "Tamp.Beacon" / "wwwroot";
     AbsolutePath PublishDir => Artifacts / "publish";
+    AbsolutePath TestResultsDir => Artifacts / "test-results";
     string ImageTag => string.IsNullOrEmpty(Version) ? "0.1.0" : Version!;
+
+    // ----- SonarCloud (SonarQube Cloud) -----
+    // dotnet-sonarscanner is installed globally in CI and resolved from PATH; Optional so the
+    // normal build/test lane doesn't require it.
+    [FromPath("dotnet-sonarscanner", Optional = true)]
+    readonly Tool SonarTool = null!;
+
+    [Secret("SonarCloud token", EnvironmentVariable = "SONAR_TOKEN")]
+    readonly Secret SonarToken = null!;
+
+    [Parameter("Sonar host URL", EnvironmentVariable = "SONAR_HOST_URL")]
+    readonly string SonarHostUrl = "https://sonarcloud.io";
+
+    [Parameter("SonarCloud organization")]
+    readonly string SonarOrganization = "tamp-build";
+
+    [Parameter("SonarCloud project key")]
+    readonly string SonarProjectKey = "tamp-build_tamp-beacon";
+
+    // PR-decoration inputs (set by ci.yml on pull_request; empty on branch runs → branch analysis).
+    [Parameter("Pull-request number", EnvironmentVariable = "SONAR_PR_KEY")] readonly string SonarPrKey = "";
+    [Parameter("Pull-request head branch", EnvironmentVariable = "SONAR_PR_BRANCH")] readonly string SonarPrBranch = "";
+    [Parameter("Pull-request base branch", EnvironmentVariable = "SONAR_PR_BASE")] readonly string SonarPrBase = "";
 
     Target Info => _ => _.Executes(() =>
     {
@@ -134,7 +159,43 @@ class Build : TampBuild
             .SetConfiguration(Configuration)
             .SetNoBuild(true)
             .AddLogger("trx;LogFileName=test-results.trx")
+            // OpenCover coverage (build/coverlet.runsettings) → SonarCloud's sonar.cs.opencover.reportsPaths.
+            .AddDataCollector("XPlat Code Coverage")
+            .SetSettings((RootDirectory / "build" / "coverlet.runsettings").Value)
             .SetResultsDirectory(Artifacts / "test-results")));
+
+    // SonarCloud analysis: Begin before Compile, End after Test, with Compile (incl. the SPA
+    // build via CopyWwwroot→FrontendBuild) + Test (OpenCover coverage) running between.
+    Target SonarBegin => _ => _
+        .Before(Compile)
+        .Requires(() => SonarToken != null)
+        .Description("Initialize the SonarCloud pre-build phase.")
+        .Executes(() => SonarScanner.Begin(SonarTool, s =>
+        {
+            s.SetProjectKey(SonarProjectKey)
+             .SetOrganization(SonarOrganization)
+             .SetHostUrl(SonarHostUrl)
+             .SetToken(SonarToken)
+             // Build tooling, the TS SPA, and the generated static bundle are not analyzed C#.
+             .SetProperty("sonar.exclusions", "build/**,web/**,src/Tamp.Beacon/wwwroot/**")
+             .SetProperty("sonar.cs.opencover.reportsPaths", $"{TestResultsDir.Value}/**/coverage.opencover.xml");
+
+            if (!string.IsNullOrEmpty(SonarPrKey))
+                s.SetProperty("sonar.pullrequest.key", SonarPrKey)
+                 .SetProperty("sonar.pullrequest.branch", SonarPrBranch)
+                 .SetProperty("sonar.pullrequest.base", SonarPrBase);
+        }));
+
+    Target SonarEnd => _ => _
+        .After(Test)
+        .DependsOn(SonarBegin)
+        .Requires(() => SonarToken != null)
+        .Description("Finalize SonarCloud and submit results.")
+        .Executes(() => SonarScanner.End(SonarTool, s => s.SetToken(SonarToken)));
+
+    Target Sonar => _ => _
+        .DependsOn(SonarBegin, Test, SonarEnd)
+        .Description("Full SonarCloud analysis: begin, SPA + .NET build, test coverage, end. Requires SONAR_TOKEN.");
 
     Target Publish => _ => _
         .DependsOn(Test)

@@ -28,6 +28,7 @@
     <PackageVersion Include="Tamp.Http" Version="0.1.1" />
     <PackageVersion Include="Tamp.Telegram" Version="0.1.0" />
     <PackageVersion Include="Tamp.Telemetry" Version="0.1.2" />
+    <PackageVersion Include="Tamp.SonarScanner.V10" Version="0.3.2" />
   </ItemGroup>
 
   <ItemGroup Label="Storage â€” Postgres (bundled in single image; overridable via BEACON_DB_CONNECTION_STRING)">
@@ -57,7 +58,7 @@
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
   </ItemGroup>
 
-  <ItemGroup Label="Transitive security pins — SSH.NET pulled transitively by Testcontainers; 2025.1.0 carries GHSA-mggc-4xg6-vcxf / GHSA-q939-rpr3-3284 (NU1903). Pin up to clear.">
+  <ItemGroup Label="Transitive security pins ï¿½ SSH.NET pulled transitively by Testcontainers; 2025.1.0 carries GHSA-mggc-4xg6-vcxf / GHSA-q939-rpr3-3284 (NU1903). Pin up to clear.">
     <PackageVersion Include="SSH.NET" Version="2026.0.0" />
   </ItemGroup>
 

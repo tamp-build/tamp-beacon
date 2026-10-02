@@ -17,6 +17,7 @@
     <PackageReference Include="Tamp.Http" />
     <PackageReference Include="Tamp.Telegram" />
     <PackageReference Include="Tamp.Telemetry" />
+    <PackageReference Include="Tamp.SonarScanner.V10" />
   </ItemGroup>
 
 </Project>
