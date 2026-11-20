@@ -8,7 +8,17 @@ Pre-1.0 versions may break public API freely between minor versions; the `0.x` l
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-20 - .NET 8 and .NET 9 dropped from CI; Tamp 1.21.0
+
+### Added
+
 - Package now ships XML documentation files (`.xml`) alongside the assembly, so consumers get IntelliSense and API docs. (Mirrors [tamp-build/tamp#3](https://github.com/tamp-build/tamp/pull/50).)
+
+### Changed
+
+- **CI no longer installs the .NET 8 and .NET 9 SDKs**, and `global.json` pins SDK 11.0.100. Both reached end of support on 2026-11-10 ([ADR 0015](https://github.com/tamp-build/tamp/blob/main/docs/adr/0015-target-framework-strategy.md)). This is a deployed service rather than a library, so it stays on `net10.0` — the current LTS runtime — and multi-targeting would buy nothing.
+
+- **`Tamp.*` pinned to 1.21.0**, which carries a SARIF fix worth knowing about if this project's output is read as evidence: before 1.21.0, a SARIF result whose scanner omitted `level` was read as `none` — the least severe value — instead of the declared `warning`, on every runtime before net11 ([tamp#166](https://github.com/tamp-build/tamp/issues/166)).
 
 ## [0.1.1] - 2026-05-15
 
